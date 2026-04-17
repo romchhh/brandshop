@@ -114,41 +114,33 @@ export default function ProductItem({params: {id}}) {
                     <div className="product-show-title">{product?.title}</div>
                 </Flex>
             </div>
-                <h2>Розміри:</h2>
-                {product?.product_properties?.some(property => property.location === 1) && (
-                    <h3>Правди 7</h3>
-                )}
-                <Space wrap>
-                    {
-                        product?.product_properties
-                            .filter(property => property.location === 1)
-                            .map((property) => (
-                                <div onClick={() => onSelectProperty(property)}
-                                        className={selectedProperty?.id === property.id ? "property-chip-selected" : "property-chip"}
-                                        key={property.id}>
+                {product?.product_properties && product.product_properties.length > 0 && (
+                    <>
+                        <h2>Розміри:</h2>
+                        <Space wrap>
+                            {product.product_properties.map((property) => (
+                                <div
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={() => onSelectProperty(property)}
+                                    onKeyDown={(e) => e.key === 'Enter' && onSelectProperty(property)}
+                                    className={selectedProperty?.id === property.id ? 'property-chip-selected' : 'property-chip'}
+                                    key={property.id}
+                                >
                                     <span
-                                        className={selectedProperty?.id === property.id ? "property-chip-selected-text" : "property-chip-text"}>{property.title}</span>
+                                        className={
+                                            selectedProperty?.id === property.id
+                                                ? 'property-chip-selected-text'
+                                                : 'property-chip-text'
+                                        }
+                                    >
+                                        {property.title}
+                                    </span>
                                 </div>
-                            ))
-                    }
-                </Space>
-                {product?.product_properties?.some(property => property.location === 2) && (
-                    <h3>Григорія Сковороди 51</h3>
+                            ))}
+                        </Space>
+                    </>
                 )}
-                <Space wrap>
-                    {
-                        product?.product_properties
-                            .filter(property => property.location === 2)
-                            .map((property) => (
-                                <div onClick={() => onSelectProperty(property)}
-                                        className={selectedProperty?.id === property.id ? "property-chip-selected" : "property-chip"}
-                                        key={property.id}>
-                                    <span
-                                        className={selectedProperty?.id === property.id ? "property-chip-selected-text" : "property-chip-text"}>{property.title}</span>
-                                </div>
-                            ))
-                    }
-                </Space>
 
         </Space.Compact>
         <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -189,9 +181,13 @@ export default function ProductItem({params: {id}}) {
                 </Button>
             </Flex>
         </div>
-        <h2 >Опис</h2>
-        <div className="product-description ">
-            <span>{product?.description}</span>
+        <h2>Опис</h2>
+        <div className="product-description">
+            <span>
+                {product?.description?.trim()
+                    ? product.description
+                    : 'Опис уточнюйте у менеджера.'}
+            </span>
         </div>
 
         {recentlyViewed && recentlyViewed.length > 0 && (

@@ -1,7 +1,16 @@
-export const DEV = false
+/** Лише `next dev` — не плутати з NEXT_PUBLIC_DEV (Docker). Мок Telegram у mockEnv.ts. */
+export const DEV = process.env.NODE_ENV === 'development'
 
-// export const API_HOST = process.env.NEXT_PUBLIC_API_HOST ||
-export const API_HOST = DEV ? 'http://127.0.0.1:8000' : 'https://brandshop.in.ua'
+function normalizeBase(url: string): string {
+    return url.trim().replace(/\/$/, '')
+}
+
+const fromEnv = process.env.NEXT_PUBLIC_API_HOST
+    ? normalizeBase(process.env.NEXT_PUBLIC_API_HOST)
+    : ''
+
+/** Базовий URL Django API. Обовʼязково задайте NEXT_PUBLIC_API_HOST при збірці (Docker / прод). */
+export const API_HOST = fromEnv || 'http://127.0.0.1:8000'
 
 export const ORDER_STATUS = {
     pending: { key: 'pending', locale: 'Очікує підтвердження'},
