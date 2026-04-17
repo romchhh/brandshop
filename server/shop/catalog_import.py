@@ -35,6 +35,9 @@ _SERVER_ROOT = Path(__file__).resolve().parent.parent
 CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE") or str(_SERVER_ROOT / "credentials.json")
 _sync_logger = logging.getLogger(__name__)
 
+# Типовий id файлу в Google Drive (лише символи, без слешів — якщо вставили id у комірку без URL)
+_BARE_DRIVE_FILE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{27,100}$")
+
 # Під час run_product_sync — лічильники для Telegram по поточному блоці каталогу
 _sync_import_active = False
 _sync_block: dict = {}
@@ -57,6 +60,8 @@ def _sync_block_reset(
         "rows_ok": 0,
         "rows_err": 0,
         "photo_fail": 0,
+        "photo_cell_unrecognized": 0,
+        "photo_fail_samples": [],
         "err_samples": [],
     }
 
@@ -76,11 +81,22 @@ def _sync_block_row_err(article: str, exc: BaseException) -> None:
         samples.append(f"{article}: {exc!s}")
 
 
-def sync_block_photo_fail() -> None:
+def sync_block_photo_fail(detail: str = "") -> None:
     """Викликати, коли в комірці було посилання на фото, а файл не завантажився."""
     if not _sync_import_active:
         return
     _sync_block["photo_fail"] = int(_sync_block.get("photo_fail", 0)) + 1
+    if detail:
+        samples: list = _sync_block.setdefault("photo_fail_samples", [])
+        if len(samples) < 6:
+            samples.append(detail[:450])
+
+
+def sync_block_photo_cell_unrecognized() -> None:
+    """У колонці фото щось є, але це не схоже на http(s) / Drive — імпорт фото пропущено."""
+    if not _sync_import_active:
+        return
+    _sync_block["photo_cell_unrecognized"] = int(_sync_block.get("photo_cell_unrecognized", 0)) + 1
 
 
 def _normalize_price(raw) -> Decimal | None:
@@ -122,6 +138,13 @@ def _is_likely_header_row(row, fields) -> bool:
     return False
 
 
+def _looks_like_bare_drive_file_id(s: str) -> bool:
+    t = re.sub(r"\s+", "", (s or "").strip())
+    if not _BARE_DRIVE_FILE_ID_RE.fullmatch(t):
+        return False
+    return any(c.isalpha() for c in t)
+
+
 def _photo_cell_usable(cell) -> bool:
     """Таблиці часто дають http, формули без 'https' або лише id — старий 'https' у рядку відсіював усе."""
     if cell is None:
@@ -133,6 +156,8 @@ def _photo_cell_usable(cell) -> bool:
     if "drive.google" in low and ("/d/" in s or "open?id=" in low or "id=" in low):
         return True
     if "http://" in low or "https://" in low:
+        return True
+    if _looks_like_bare_drive_file_id(s):
         return True
     return False
 
@@ -146,6 +171,11 @@ def _drive_file_id(link: str) -> str | None:
             return s.split("open?id=", 1)[1].split("&")[0]
         if "id=" in s and "drive.google" in s.lower():
             return s.split("id=", 1)[1].split("&")[0]
+        m = re.search(r"(?:\?|&)fileId=([a-zA-Z0-9_-]+)", s, re.I)
+        if m:
+            return m.group(1)
+        if "/" not in s and "?" not in s and _looks_like_bare_drive_file_id(s):
+            return re.sub(r"\s+", "", s.strip())
     except (IndexError, AttributeError):
         pass
     return None
@@ -274,6 +304,8 @@ def run_product_sync(log=print):
                     _sync_block.get("rows_err", 0),
                     _sync_block.get("photo_fail", 0),
                     list(_sync_block.get("err_samples") or []),
+                    photo_cell_unrecognized=_sync_block.get("photo_cell_unrecognized", 0),
+                    photo_fail_samples=list(_sync_block.get("photo_fail_samples") or []),
                 )
             )
     finally:
@@ -401,12 +433,17 @@ def update_product(row, fields):
         product.description = str(row[fields["description"]])
         product.save(update_fields=["description"])
 
-    if fields["photo"] < len(row) and _photo_cell_usable(row[fields["photo"]]):
-        ph = download_photo(row[fields["photo"]])
-        if ph is not None:
-            product.photo.save(f"{product.article}_main.jpg", ph, save=True)
-        else:
-            sync_block_photo_fail()
+    if fields["photo"] < len(row):
+        cell = row[fields["photo"]]
+        raw = str(cell).strip() if cell is not None else ""
+        if raw and not _photo_cell_usable(cell):
+            sync_block_photo_cell_unrecognized()
+        elif _photo_cell_usable(cell):
+            ph, ph_err = download_photo(cell)
+            if ph is not None:
+                product.photo.save(f"{product.article}_main.jpg", ph, save=True)
+            else:
+                sync_block_photo_fail(f"{product.article}: {ph_err or 'невідома причина'}")
 
 
 def create_product(row, fields, catalog_title):
@@ -447,16 +484,22 @@ def create_product(row, fields, catalog_title):
         description=desc,
     )
 
-    if fields["photo"] < len(row) and _photo_cell_usable(row[fields["photo"]]):
-        photo = download_photo(row[fields["photo"]])
-        if photo is not None:
-            product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
-        else:
-            _sync_logger.warning(
-                "create_product: skipped photo (download failed) article=%s",
-                row[fields["article"]],
-            )
-            sync_block_photo_fail()
+    if fields["photo"] < len(row):
+        cell = row[fields["photo"]]
+        raw = str(cell).strip() if cell is not None else ""
+        if raw and not _photo_cell_usable(cell):
+            sync_block_photo_cell_unrecognized()
+        elif _photo_cell_usable(cell):
+            photo, ph_err = download_photo(cell)
+            if photo is not None:
+                product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
+            else:
+                _sync_logger.warning(
+                    "create_product: skipped photo article=%s reason=%s",
+                    row[fields["article"]],
+                    ph_err,
+                )
+                sync_block_photo_fail(f"{row[fields['article']]}: {ph_err or 'невідома причина'}")
 
     for size in dict.fromkeys(sizes):
         _merge_product_property(product, size)
@@ -509,21 +552,25 @@ def _response_looks_like_html(data: bytes) -> bool:
     return b"<!doctype html" in low or b"<html" in low
 
 
-def _download_photo_via_drive_api(file_id: str) -> bytes | None:
+def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | None]:
     """
     Завантаження бінарного вмісту файлу через Drive API (service account).
     Потрібен доступ: файл або папка в Drive «поділені» з client_email з credentials.json.
     """
     if not os.path.isfile(CREDENTIALS_FILE):
-        _sync_logger.warning("download_photo: немає credentials %s", CREDENTIALS_FILE)
-        return None
+        msg = f"немає credentials за шляхом {CREDENTIALS_FILE}"
+        _sync_logger.warning("download_photo: %s", msg)
+        return None, msg
     try:
         creds = Credentials.from_service_account_file(
             CREDENTIALS_FILE,
             scopes=["https://www.googleapis.com/auth/drive.readonly"],
         )
         service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        request = service.files().get_media(fileId=file_id)
+        try:
+            request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        except TypeError:
+            request = service.files().get_media(fileId=file_id)
         buf = io.BytesIO()
         downloader = MediaIoBaseDownload(buf, request)
         done = False
@@ -531,7 +578,9 @@ def _download_photo_via_drive_api(file_id: str) -> bytes | None:
             _, done = downloader.next_chunk()
         buf.seek(0)
         data = buf.read()
-        return data if data else None
+        if not data:
+            return None, "Drive API: порожня відповідь"
+        return data, None
     except HttpError as e:
         status = getattr(e.resp, "status", None)
         _sync_logger.warning(
@@ -540,53 +589,164 @@ def _download_photo_via_drive_api(file_id: str) -> bytes | None:
             file_id,
             status,
         )
-        return None
+        if status == 404:
+            return None, "Drive API 404: файл не знайдено або немає доступу (поділіться з service account)"
+        if status == 403:
+            return None, "Drive API 403: заборонено — додайте service account з credentials.json як читача файлу"
+        return None, f"Drive API: помилка HTTP {status}"
     except Exception as e:
         _sync_logger.warning("Drive API: помилка file_id=%s: %s", file_id, e)
-        return None
+        return None, f"Drive API: {e!s}"
 
 
-def _download_photo_via_http(file_id: str) -> ContentFile | None:
-    """Резерв: прямий HTTP (часто віддає HTML замість файлу для великих/сканованих файлів)."""
-    download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
-    response = requests.get(download_url, timeout=120)
-    if response.status_code != 200:
-        _sync_logger.warning("download_photo HTTP: %s file_id=%s", response.status_code, file_id)
-        return None
-    data = response.content
+def _content_from_bytes(data: bytes) -> tuple[ContentFile | None, str | None]:
     if _bytes_look_like_image(data):
-        return ContentFile(data)
+        return ContentFile(data), None
+    if not _response_looks_like_html(data) and len(data) > 200:
+        return ContentFile(data), None
     if _response_looks_like_html(data):
-        _sync_logger.warning(
-            "download_photo: HTML замість зображення (uc-лінк) file_id=%s",
-            file_id,
-        )
-        return None
-    return ContentFile(data)
+        return None, "HTML-сторінка замість файлу"
+    return None, "дані не схожі на зображення"
 
 
-def download_photo(link):
-    """Спочатку Google Drive API, інакше HTTP uc?id=."""
+def _download_photo_via_http(file_id: str) -> tuple[ContentFile | None, str | None]:
+    """
+    Резерв після Drive API. Великі файли в Google часто віддають HTML + cookie download_warning;
+    без повторного запиту з confirm — бінарник не отримати.
+    """
+    session = requests.Session()
+    base = "https://drive.google.com/uc"
+    params = {"export": "download", "id": file_id}
     try:
-        file_id = _drive_file_id(link)
-        if not file_id:
-            return None
+        r = session.get(base, params=params, timeout=120)
+        if r.status_code != 200:
+            return None, f"uc export: HTTP {r.status_code}"
 
-        data = _download_photo_via_drive_api(file_id)
-        if data:
-            if _bytes_look_like_image(data):
-                return ContentFile(data)
-            if not _response_looks_like_html(data) and len(data) > 200:
-                return ContentFile(data)
-            _sync_logger.debug(
-                "download_photo: Drive API відповідь не схожа на зображення file_id=%s, пробуємо HTTP",
-                file_id,
+        cf, err = _content_from_bytes(r.content)
+        if cf is not None:
+            return cf, None
+
+        if not _response_looks_like_html(r.content):
+            return None, err or "невідомий формат від uc export"
+
+        confirm = None
+        for cookie in session.cookies:
+            if cookie.name.startswith("download_warning"):
+                confirm = cookie.value
+                break
+        if confirm is None:
+            m = re.search(r"confirm=([0-9A-Za-z_-]+)", r.text[:200000])
+            if m:
+                confirm = m.group(1)
+        if confirm:
+            r2 = session.get(
+                base,
+                params={"export": "download", "id": file_id, "confirm": confirm},
+                timeout=120,
             )
+            if r2.status_code == 200:
+                cf2, err2 = _content_from_bytes(r2.content)
+                if cf2 is not None:
+                    return cf2, None
+                if err2:
+                    _sync_logger.debug("uc confirm retry: %s file_id=%s", err2, file_id)
 
-        return _download_photo_via_http(file_id)
+        r3 = session.get(
+            "https://docs.google.com/uc",
+            params={"export": "download", "id": file_id},
+            timeout=120,
+        )
+        if r3.status_code == 200:
+            cf3, _ = _content_from_bytes(r3.content)
+            if cf3 is not None:
+                return cf3, None
+            for cookie in session.cookies:
+                if cookie.name.startswith("download_warning"):
+                    r4 = session.get(
+                        "https://docs.google.com/uc",
+                        params={
+                            "export": "download",
+                            "id": file_id,
+                            "confirm": cookie.value,
+                        },
+                        timeout=120,
+                    )
+                    if r4.status_code == 200:
+                        cf4, _ = _content_from_bytes(r4.content)
+                        if cf4 is not None:
+                            return cf4, None
+                    break
+
+        return None, (
+            "Google uc export: замість зображення HTML (немає доступу до файлу в Drive для service account "
+            "або потрібне підтвердження завантаження для великого файлу)"
+        )
+    except Exception as e:
+        _sync_logger.warning("uc export exception file_id=%s: %s", file_id, e)
+        return None, f"uc export: {e!s}"
+
+
+def _download_photo_direct_http(url: str) -> tuple[ContentFile | None, str | None]:
+    """Пряме посилання на файл (не Google Drive file id): CDN, Imgur, тощо."""
+    try:
+        r = requests.get(
+            url,
+            timeout=120,
+            allow_redirects=True,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; GiveMeCatalogSync/1.0)"},
+        )
+        if r.status_code != 200:
+            return None, f"пряме посилання: HTTP {r.status_code}"
+        data = r.content
+        if len(data) > 25 * 1024 * 1024:
+            return None, "файл занадто великий (>25 МБ)"
+        cf, err = _content_from_bytes(data)
+        if cf is not None:
+            return cf, None
+        return None, err or "пряме посилання: не зображення"
+    except Exception as e:
+        _sync_logger.warning("direct photo HTTP failed url=%s: %s", url[:220], e)
+        return None, f"пряме посилання: {e!s}"
+
+
+def download_photo(link) -> tuple[ContentFile | None, str | None]:
+    """
+    Спочатку Google Drive API (file id), інакше uc?export=download з confirm;
+    прямі https на зображення (не drive.google.com) — окремий GET.
+    Повертає (файл, None) або (None, короткий текст причини для логів/Telegram).
+    """
+    try:
+        s = (link or "").strip()
+        if not s:
+            return None, "порожнє посилання"
+        file_id = _drive_file_id(s)
+        if file_id:
+            data, api_err = _download_photo_via_drive_api(file_id)
+            if data:
+                cf, conv_err = _content_from_bytes(data)
+                if cf is not None:
+                    return cf, None
+                _sync_logger.debug(
+                    "download_photo: Drive API не JPEG/PNG, пробуємо HTTP file_id=%s (%s)",
+                    file_id,
+                    conv_err,
+                )
+
+            cf_http, http_err = _download_photo_via_http(file_id)
+            if cf_http is not None:
+                return cf_http, None
+            parts = [x for x in (api_err, http_err) if x]
+            return None, " / ".join(parts) if parts else "не вдалось завантажити з Drive"
+
+        low = s.lower()
+        if low.startswith(("http://", "https://")) and "drive.google.com" not in low:
+            return _download_photo_direct_http(s)
+        if "drive.google.com" in low and not file_id:
+            return None, "посилання на Drive, але не вдалось витягти file id з тексту комірки"
+        return None, "не знайдено file id і це не пряме https-посилання на файл"
     except Exception as e:
         _sync_logger.exception("download_photo failed link=%s: %s", link, e)
-        return None
+        return None, f"виняток: {e!s}"
 
 
 def get_google_sheet_data(spreadsheet_id, range_name):

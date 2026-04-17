@@ -146,6 +146,8 @@ def format_block_done(
     rows_err: int,
     photo_fail: int,
     err_samples: list[str],
+    photo_cell_unrecognized: int = 0,
+    photo_fail_samples: list[str] | None = None,
 ) -> str:
     lines = [
         f"✅ Блок «{catalog_title}» завершено",
@@ -153,11 +155,17 @@ def format_block_done(
         f"— товарів успішно записано в БД (рядок без винятку): {rows_ok}",
         f"— помилок по рядках: {rows_err}",
         f"— фото не завантажено (посилання було, файл не отримано): {photo_fail}",
+        f"— у колонці фото є текст, але не URL / не розпізнано (потрібне https або посилання Drive): {photo_cell_unrecognized}",
     ]
     if err_samples:
         lines.append("")
         lines.append("Приклади помилок рядків:")
         for s in err_samples[:5]:
             lines.append(f" • {s[:350]}")
+    if photo_fail_samples:
+        lines.append("")
+        lines.append("Приклади (чому не вдалось фото):")
+        for s in photo_fail_samples[:5]:
+            lines.append(f" • {s[:380]}")
     return "\n".join(lines)[:TELEGRAM_MAX_MESSAGE]
 
