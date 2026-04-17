@@ -20,7 +20,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 13,
-        "photo": 14,
+        "photo": 16,
     },
     {
         "catalog": "Світери",
