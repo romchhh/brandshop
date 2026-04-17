@@ -64,6 +64,7 @@ export const NavBarHead = ({pathname, showSidebarMenu, setShowSidebarMenu}) => {
             <Image 
                 alt="Telegram"
                 src="/telegram.svg"
+                unoptimized
                 width={28}
                 height={24}
                 onClick={goToTelegram}
@@ -72,6 +73,7 @@ export const NavBarHead = ({pathname, showSidebarMenu, setShowSidebarMenu}) => {
                 <Image alt="Icon"
                        className="icon-active"
                        src={!showSidebarMenu && pathname === TABS_PROPS.basket.path ? '/store-active.svg' : '/store.svg'}
+                       unoptimized
                        width={28} height={24} onClick={goToBasket}/>
             </Badge>
         </div>

@@ -2,6 +2,8 @@
 
 import Image, { type ImageProps } from "next/image";
 
+import { resolveMediaSrc } from "@/lib/resolveMediaSrc";
+
 export function isNonRasterImageSrc(src: string): boolean {
     const base = src.split("?")[0].toLowerCase();
     return (
@@ -28,9 +30,10 @@ export function CachedRemoteImage({
     if (!src) {
         return null;
     }
+    const resolved = resolveMediaSrc(src) ?? src;
     return (
         <Image
-            src={src}
+            src={resolved}
             alt={alt}
             unoptimized={unoptimized ?? isNonRasterImageSrc(src)}
             {...rest}
