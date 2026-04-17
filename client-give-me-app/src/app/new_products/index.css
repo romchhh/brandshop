@@ -1,0 +1,18 @@
+.flex-container {
+    width: 380px;
+    white-space: nowrap;
+    display: flex;
+    flex-wrap: nowrap;
+    overflow: auto;
+    scrollbar-width: none; /* Hides scrollbar */
+    -ms-overflow-style: none;  /* IE and Edge */
+}
+
+.flex-container::-webkit-scrollbar {
+    display: none; /* Hides scrollbar for WebKit browsers */
+}
+
+.flex-item {
+    flex: 0 0 auto;
+    margin-right: 20px;
+}

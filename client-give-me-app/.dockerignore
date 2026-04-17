@@ -1,0 +1,36 @@
+.git
+.gitignore
+**/.gitkeep
+**/.DS_Store
+.next
+.dockerignore
+.circleci
+Dockerfile
+docker-compose.yml
+node_modules
+deploy
+pages/stubs
+venv
+kite
+cypress
+stories
+
+# Sentry
+.sentryclirc
+
+# IDE / локальне (менший build context → менше тимчасового місця)
+.idea
+*.md
+!README.md
+
+# npm при використанні yarn — менше контексту й попереджень
+package-lock.json
+
+# тести й артефакти
+coverage
+.nyc_output
+playwright-report
+test-results
+storybook-static
+.turbo
+.cache

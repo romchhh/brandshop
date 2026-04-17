@@ -1,0 +1,15 @@
+.search {
+    .ant-input-outlined {
+        background: #F3F6FB;
+        border: none;
+    }
+
+    .ant-input-affix-wrapper {
+        border-radius: 13px;
+        border: 1px solid #d7b86f;
+    }
+
+    .ant-input {
+        height: 33px;
+    }
+}

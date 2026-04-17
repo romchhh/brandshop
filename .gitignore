@@ -1,0 +1,26 @@
+.env
+.env.local
+.env.*.local
+
+# Секрети (шаблон — env.example)
+server/credentials.json
+**/credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+
+# Великі медіа в репо не потрібні
+bot/*.MP4
+bot/*.mp4
+
+# Node
+node_modules/
+
+# OS
+.DS_Store

@@ -1,0 +1,48 @@
+.order-container {
+    padding: 20px;
+    gap: 20px;
+
+    background: #F3F6FB;
+    border-radius: 20px;
+
+    :is(span) {
+        font-family: var(--main-font);
+        font-style: normal;
+        font-weight: 600;
+        font-size: 16px;
+
+        color: #000000;
+    }
+
+    .product-title {
+        font-family: var(--main-font);
+        font-style: normal;
+        font-weight: 500;
+        font-size: 18px;
+        line-height: 21px;
+
+        color: #000000;
+    }
+
+    .product-property-title {
+        font-family: var(--main-font);
+        font-style: normal;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 16px;
+
+        color: #9354FF;
+    }
+
+    .value {
+        font-weight: 500 !important;
+    }
+
+    .red {
+        color: #FC0026;
+    }
+
+    .green {
+        color: #21B500;
+    }
+}

@@ -1,0 +1,111 @@
+.banner-image {
+    margin-top: 26px;
+}
+
+.catalogs-item {
+    position: relative; /* Create a positioning context for the absolute positioning of text */
+    display: inline-block;
+    width: 172px;
+    height: 176px;
+    border-radius: 8px;
+}
+
+.catalogs-item-text {
+    margin: 0;
+    position: absolute; /* Absolute positioning within the container */
+    top: 50%; /* Center vertically */
+    left: 50%; /* Center horizontally */
+    transform: translate(-50%, -50%); /* Adjust positioning for perfect center */
+    color: white; /* Text color */
+    text-align: center; /* Center text */
+    background-color: rgba(0, 0, 0, 0.2); /* Optional background for text for better readability */
+    width: 100%;
+    height: 100%;
+    border-radius: 10px;
+    display: flex; /* Use flexbox for centering */
+    align-items: center; /* Center vertically */
+    justify-content: center; /* Center horizontally */
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 21px;
+}
+
+.category-item {
+    cursor: pointer;
+    padding: 10px !important;
+    align-items: flex-end !important;
+    margin-bottom: 16px;
+    height: 222px;
+    border-radius: 12px;
+    background-position: bottom;
+}
+
+.category-content {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.category-image-container {
+    position: relative;
+    width: 100%;
+    flex: 1;
+    height: 140px;
+    margin-bottom: 8px;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.category-info {
+    padding: 5px 12px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-radius: 10px;
+}
+
+.category-title {
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.category-count {
+    color: #666;
+    font-size: 14px;
+}
+
+.category-arrow {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 24px;
+    color: #666;
+}
+
+.category-content img {
+    width: 80px;
+    height: 80px;
+    border-radius: 8px;
+    object-fit: cover;
+}
+
+h2 {
+    margin: 16px 0;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+/* Стиль для поля пошуку */
+:global(.ant-input-search) {
+    margin-bottom: 16px;
+}
+
+/* Прибираємо стандартні бордери та паддінги з List.Item */
+:global(.ant-list-item) {
+    padding: 0 !important;
+    border: none !important;
+}

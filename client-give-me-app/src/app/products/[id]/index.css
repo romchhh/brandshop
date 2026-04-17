@@ -1,0 +1,132 @@
+.product-item-show {
+    padding: 10px;
+
+    border-radius: 20px;
+
+    margin-top: 26px;
+}
+
+.product-item-show img,
+.product-item-show .product-item-show-photo {
+    width: calc(100% + 40px);
+    margin-left: -20px;
+    margin-right: -20px;
+    height: auto;
+}
+
+.product-show-title {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 24px;
+    line-height: 24px;
+
+    color: #2F2D2C;
+}
+
+.product-show-catalog-title {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 400;
+    font-size: 14px;
+    line-height: 16px;
+
+    color: #9B9B9B;
+}
+
+.product-show-price {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 18px;
+    line-height: 21px;
+
+    color: #2F4B4E;
+}
+
+.product-show-older-price {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 16px;
+    text-decoration-line: line-through;
+
+    color: #979797;
+}
+
+.product-description {
+    padding: 10px;
+
+    background: #F3F6FB;
+    border-radius: 20px;
+
+    :is(span) {
+        font-family: var(--main-font);
+        font-style: normal;
+        font-weight: 500;
+        font-size: 14px;
+        line-height: 16px;
+    }
+}
+
+.basket-button {
+    height: 52px;
+}
+
+.property-chip {
+    padding: 10px 14px;
+
+    border: 1px solid #d7b86f;
+    border-radius: 30px;
+
+    width: auto;
+}
+
+.property-chip-text {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 16px;
+
+    color: #909092;
+}
+
+.property-chip-selected {
+    padding: 10px 14px;
+
+    width: auto;
+
+    border: 1px solid #d7b86f;
+    background: #d7b86f;
+    border-radius: 30px;
+}
+
+.property-chip-selected-text {
+    font-family: var(--main-font);
+    font-style: normal;
+    font-weight: 600;
+    font-size: 14px;
+    line-height: 16px;
+
+    color: white;
+}
+
+.product-modal-image {
+    width: 90px;
+    height: 90px;
+    overflow: hidden;
+}
+
+.product-modal-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 10px;
+    border: 1px solid #e8e8e8;
+}
+
+.ant-modal-content {
+    padding: 10px !important;
+}
