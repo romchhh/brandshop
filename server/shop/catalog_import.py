@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import io
 import logging
+import time
 import os
 import re
 from decimal import Decimal, InvalidOperation
@@ -15,13 +17,70 @@ import requests
 from django.core.files.base import ContentFile
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaIoBaseDownload
 
 from shop.catalog_sheet_sources import iter_catalog_import_jobs
 from shop.models import Catalog, Product, ProductProperty
+from shop.sync_telegram import (
+    format_block_done,
+    format_block_empty,
+    format_block_start,
+    format_sync_summary,
+    notify_sheet_error,
+    send_catalog_sync_message,
+)
 
 _SERVER_ROOT = Path(__file__).resolve().parent.parent
 CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE") or str(_SERVER_ROOT / "credentials.json")
 _sync_logger = logging.getLogger(__name__)
+
+# Під час run_product_sync — лічильники для Telegram по поточному блоці каталогу
+_sync_import_active = False
+_sync_block: dict = {}
+
+
+def _sync_import_set_active(value: bool) -> None:
+    global _sync_import_active
+    _sync_import_active = value
+
+
+def _sync_block_reset(
+    catalog_title: str, spreadsheet_id: str, sheet_indexes, row_count: int
+) -> None:
+    global _sync_block
+    _sync_block = {
+        "catalog_title": catalog_title,
+        "spreadsheet_id": spreadsheet_id,
+        "sheet_indexes": sheet_indexes,
+        "row_count": row_count,
+        "rows_ok": 0,
+        "rows_err": 0,
+        "photo_fail": 0,
+        "err_samples": [],
+    }
+
+
+def _sync_block_row_ok() -> None:
+    if not _sync_import_active:
+        return
+    _sync_block["rows_ok"] = int(_sync_block.get("rows_ok", 0)) + 1
+
+
+def _sync_block_row_err(article: str, exc: BaseException) -> None:
+    if not _sync_import_active:
+        return
+    _sync_block["rows_err"] = int(_sync_block.get("rows_err", 0)) + 1
+    samples: list = _sync_block.setdefault("err_samples", [])
+    if len(samples) < 8:
+        samples.append(f"{article}: {exc!s}")
+
+
+def sync_block_photo_fail() -> None:
+    """Викликати, коли в комірці було посилання на фото, а файл не завантажився."""
+    if not _sync_import_active:
+        return
+    _sync_block["photo_fail"] = int(_sync_block.get("photo_fail", 0)) + 1
 
 
 def _normalize_price(raw) -> Decimal | None:
@@ -132,54 +191,103 @@ def run_product_sync(log=print):
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
     log: callable(str) — для виводу прогресу (наприклад self.stdout.write у команді).
     """
-    for catalog_title, spreadsheet_id, fields in iter_catalog_import_jobs():
-        range_name = fields["sheet"]
-        if not isinstance(range_name, list):
-            range_name = [range_name]
+    t0 = time.monotonic()
+    row_errors: list[str] = []
+    sheet_errors: list[str] = []
+    catalogs_completed = 0
+    rows_processed = 0
 
-        log(
-            f"--- Каталог «{catalog_title}» · spreadsheet={spreadsheet_id} · sheet index(es)={range_name} ---"
-        )
-        try:
-            rows = get_catalog_data(spreadsheet_id, range_name)
-        except Exception as exc:
-            log(f"ПОМИЛКА читання таблиці (пропускаємо цей блок): {exc}")
-            _sync_logger.exception(
-                "sync: get_catalog_data failed catalog=%s spreadsheet=%s",
-                catalog_title,
-                spreadsheet_id,
+    send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
+    _sync_import_set_active(True)
+    try:
+        for catalog_title, spreadsheet_id, fields in iter_catalog_import_jobs():
+            range_name = fields["sheet"]
+            if not isinstance(range_name, list):
+                range_name = [range_name]
+
+            log(
+                f"--- Каталог «{catalog_title}» · spreadsheet={spreadsheet_id} · sheet index(es)={range_name} ---"
             )
-            continue
-
-        if len(rows) == 0:
-            log("Таблиця порожня або діапазон не знайдено.")
-            continue
-
-        ind = 1
-        for row in rows:
-            log(f"{ind} / {len(rows)}")
-            ind += 1
-            if fields["article"] >= len(row) or row[fields["article"]] == "":
-                continue
-            if _is_likely_header_row(row, fields):
-                continue
-
             try:
-                if not Product.objects.filter(article=row[fields["article"]]).exists():
-                    create_product(row, fields, catalog_title)
-                else:
-                    update_product(row, fields)
+                rows = get_catalog_data(spreadsheet_id, range_name)
             except Exception as exc:
-                log(
-                    f"ПОМИЛКА рядка {ind - 1} (арт. {row[fields['article']] if fields['article'] < len(row) else '?'}): {exc}"
-                )
+                log(f"ПОМИЛКА читання таблиці (пропускаємо цей блок): {exc}")
                 _sync_logger.exception(
-                    "sync: row failed catalog=%s article_index=%s",
+                    "sync: get_catalog_data failed catalog=%s spreadsheet=%s",
                     catalog_title,
-                    fields.get("article"),
+                    spreadsheet_id,
                 )
+                err_line = f"{catalog_title} | {spreadsheet_id} | {exc!s}"
+                sheet_errors.append(err_line)
+                notify_sheet_error(catalog_title, spreadsheet_id, exc)
+                continue
 
-        log(f"--- Завершено блок: «{catalog_title}» / {spreadsheet_id} ---")
+            if len(rows) == 0:
+                log("Таблиця порожня або діапазон не знайдено.")
+                send_catalog_sync_message(format_block_empty(catalog_title, spreadsheet_id))
+                catalogs_completed += 1
+                continue
+
+            _sync_block_reset(catalog_title, spreadsheet_id, range_name, len(rows))
+            send_catalog_sync_message(
+                format_block_start(catalog_title, spreadsheet_id, range_name, len(rows))
+            )
+
+            ind = 1
+            for row in rows:
+                log(f"{ind} / {len(rows)}")
+                ind += 1
+                if fields["article"] >= len(row) or row[fields["article"]] == "":
+                    continue
+                if _is_likely_header_row(row, fields):
+                    continue
+
+                art = str(row[fields["article"]]).strip() if fields["article"] < len(row) else "?"
+                try:
+                    if not Product.objects.filter(article=row[fields["article"]]).exists():
+                        create_product(row, fields, catalog_title)
+                    else:
+                        update_product(row, fields)
+                    rows_processed += 1
+                    _sync_block_row_ok()
+                except Exception as exc:
+                    log(
+                        f"ПОМИЛКА рядка {ind - 1} (арт. {row[fields['article']] if fields['article'] < len(row) else '?'}): {exc}"
+                    )
+                    _sync_logger.exception(
+                        "sync: row failed catalog=%s article_index=%s",
+                        catalog_title,
+                        fields.get("article"),
+                    )
+                    _sync_block_row_err(art, exc)
+                    row_errors.append(f"{catalog_title} · арт. {art} · {exc!s}")
+                    if len(row_errors) > 200:
+                        row_errors.pop(0)
+
+            catalogs_completed += 1
+            log(f"--- Завершено блок: «{catalog_title}» / {spreadsheet_id} ---")
+            send_catalog_sync_message(
+                format_block_done(
+                    catalog_title,
+                    spreadsheet_id,
+                    _sync_block.get("rows_ok", 0),
+                    _sync_block.get("rows_err", 0),
+                    _sync_block.get("photo_fail", 0),
+                    list(_sync_block.get("err_samples") or []),
+                )
+            )
+    finally:
+        _sync_import_set_active(False)
+
+    duration = time.monotonic() - t0
+    summary = format_sync_summary(
+        duration_sec=duration,
+        catalogs_completed=catalogs_completed,
+        total_rows_iterated=rows_processed,
+        row_errors=row_errors,
+        sheet_errors=sheet_errors,
+    )
+    send_catalog_sync_message(summary)
 
 
 def get_catalog_data(SPREADSHEET_ID, RANGE_NAME):
@@ -297,6 +405,8 @@ def update_product(row, fields):
         ph = download_photo(row[fields["photo"]])
         if ph is not None:
             product.photo.save(f"{product.article}_main.jpg", ph, save=True)
+        else:
+            sync_block_photo_fail()
 
 
 def create_product(row, fields, catalog_title):
@@ -346,6 +456,7 @@ def create_product(row, fields, catalog_title):
                 "create_product: skipped photo (download failed) article=%s",
                 row[fields["article"]],
             )
+            sync_block_photo_fail()
 
     for size in dict.fromkeys(sizes):
         _merge_product_property(product, size)
@@ -391,28 +502,88 @@ def _bytes_look_like_image(data: bytes) -> bool:
     return False
 
 
+def _response_looks_like_html(data: bytes) -> bool:
+    if not data or len(data) < 10:
+        return False
+    low = data[: min(8000, len(data))].lower()
+    return b"<!doctype html" in low or b"<html" in low
+
+
+def _download_photo_via_drive_api(file_id: str) -> bytes | None:
+    """
+    Завантаження бінарного вмісту файлу через Drive API (service account).
+    Потрібен доступ: файл або папка в Drive «поділені» з client_email з credentials.json.
+    """
+    if not os.path.isfile(CREDENTIALS_FILE):
+        _sync_logger.warning("download_photo: немає credentials %s", CREDENTIALS_FILE)
+        return None
+    try:
+        creds = Credentials.from_service_account_file(
+            CREDENTIALS_FILE,
+            scopes=["https://www.googleapis.com/auth/drive.readonly"],
+        )
+        service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        request = service.files().get_media(fileId=file_id)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        data = buf.read()
+        return data if data else None
+    except HttpError as e:
+        status = getattr(e.resp, "status", None)
+        _sync_logger.warning(
+            "Drive API: не вдалося завантажити file_id=%s (HTTP %s). "
+            "Надайте service account з credentials.json доступ до файлу/папки в Google Drive.",
+            file_id,
+            status,
+        )
+        return None
+    except Exception as e:
+        _sync_logger.warning("Drive API: помилка file_id=%s: %s", file_id, e)
+        return None
+
+
+def _download_photo_via_http(file_id: str) -> ContentFile | None:
+    """Резерв: прямий HTTP (часто віддає HTML замість файлу для великих/сканованих файлів)."""
+    download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
+    response = requests.get(download_url, timeout=120)
+    if response.status_code != 200:
+        _sync_logger.warning("download_photo HTTP: %s file_id=%s", response.status_code, file_id)
+        return None
+    data = response.content
+    if _bytes_look_like_image(data):
+        return ContentFile(data)
+    if _response_looks_like_html(data):
+        _sync_logger.warning(
+            "download_photo: HTML замість зображення (uc-лінк) file_id=%s",
+            file_id,
+        )
+        return None
+    return ContentFile(data)
+
+
 def download_photo(link):
-    """Завантаження фото за посиланням Google Drive (пряме uc — не завжди працює для великих файлів)."""
+    """Спочатку Google Drive API, інакше HTTP uc?id=."""
     try:
         file_id = _drive_file_id(link)
         if not file_id:
             return None
-        download_url = f"https://drive.google.com/uc?id={file_id}&export=download"
-        response = requests.get(download_url, timeout=60)
-        if response.status_code == 200:
-            data = response.content
+
+        data = _download_photo_via_drive_api(file_id)
+        if data:
             if _bytes_look_like_image(data):
                 return ContentFile(data)
-            low = data[:8000].lower()
-            if b"<!doctype html" in low or b"<html" in low:
-                _sync_logger.warning(
-                    "download_photo: HTML instead of image (Drive warning/scan) file_id=%s",
-                    file_id,
-                )
-                return None
-            return ContentFile(data)
-        _sync_logger.warning("download_photo: HTTP %s file_id=%s", response.status_code, file_id)
-        return None
+            if not _response_looks_like_html(data) and len(data) > 200:
+                return ContentFile(data)
+            _sync_logger.debug(
+                "download_photo: Drive API відповідь не схожа на зображення file_id=%s, пробуємо HTTP",
+                file_id,
+            )
+
+        return _download_photo_via_http(file_id)
     except Exception as e:
         _sync_logger.exception("download_photo failed link=%s: %s", link, e)
         return None

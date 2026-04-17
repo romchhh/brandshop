@@ -45,6 +45,7 @@ services:
       API_HOST: 'http://localhost:8001'
       BOT_TOKEN: ${TELEGRAM_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
+      ADMIN_IDS: ${ADMIN_IDS:-}
       # Довгий імпорт з Google Таблиць (gunicorn --timeout)
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-3600}
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
