@@ -190,7 +190,11 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+# Завантаження фото (імпорт, адмінка) йде сюди. За замовчуванням — server/media у репозиторії.
+# На проді: DJANGO_MEDIA_ROOT=/var/www/brandshop/media — nginx `location /media/` → `alias` на той самий шлях
+# (користувач www-data має читати каталог; не тримайте медіа лише під /root без execute для «інших»).
+_media_root_env = os.getenv("DJANGO_MEDIA_ROOT", "").strip()
+MEDIA_ROOT = str(Path(_media_root_env).resolve()) if _media_root_env else str(BASE_DIR / "media")
 
 # Абсолютні URL фото/медіа для клієнта (Next.js на іншому домені).
 # Приклад: https://brandshop.in.ua — без слешу в кінці. Інакше в serializers лишиться localhost.

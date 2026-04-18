@@ -30,6 +30,8 @@ services:
     container_name: django_server
     volumes:
       - ./server:/app
+      # Той самий шлях, що DJANGO_MEDIA_ROOT (за замовчуванням /app/media = server/media).
+      - ${MEDIA_VOLUME_HOST_PATH:-./server/media}:${DJANGO_MEDIA_ROOT:-/app/media}
     ports:
       - "8000:8000"
     environment:
@@ -51,6 +53,8 @@ services:
       GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
       # Публічний URL API для фото товарів у клієнті (без / в кінці), напр. https://api.brandshop.in.ua
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      # Порожньо = server/media у volume. На VPS: /var/www/brandshop/media (той самий шлях у nginx alias).
+      DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT:-}
     networks:
      - djangonetwork
     depends_on:
@@ -93,8 +97,8 @@ services:
       NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
       NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-1}
     volumes:
-      # Фото з Django MEDIA: той самий каталог, що server/media — в міні-апі як /media/product_photos/...
-      - ./server/media:/app/public/media
+      # Той самий каталог, що MEDIA_ROOT у Django (локально ./server/media). Якщо DJANGO_MEDIA_ROOT=/var/www/... — змонтуйте його сюди замість рядка нижче.
+      - ${MEDIA_VOLUME_HOST_PATH:-./server/media}:/app/public/media
     networks:
       - djangonetwork
     depends_on:
