@@ -4,6 +4,11 @@ import Image, { type ImageProps } from "next/image";
 
 import { resolveMediaSrc } from "@/lib/resolveMediaSrc";
 
+/** Фото з Django (/media/...) як повний http(s) — тягнути напряму в <img>, без /_next/image (у Telegram WebView часто ламається оптимізатор). */
+function isRemoteAbsoluteUrl(src: string): boolean {
+    return /^https?:\/\//i.test(src.trim());
+}
+
 export function isNonRasterImageSrc(src: string): boolean {
     const base = src.split("?")[0].toLowerCase();
     return (
@@ -18,8 +23,8 @@ export type CachedRemoteImageProps = Omit<ImageProps, "src"> & {
 };
 
 /**
- * Remote photos go through the Next.js image optimizer (WebP/AVIF, resized, HTTP cache).
- * SVG / data / blob URLs stay unoptimized (native delivery).
+ * SVG / data / blob — без оптимізації.
+ * Повні http(s) URL (медіа з API) — без /_next/image, щоб міні-ап і прод не ламалися на fetch з боку Next.
  */
 export function CachedRemoteImage({
     src,
@@ -31,11 +36,14 @@ export function CachedRemoteImage({
         return null;
     }
     const resolved = resolveMediaSrc(src) ?? src;
+    const autoUnopt =
+        isNonRasterImageSrc(resolved) ||
+        isRemoteAbsoluteUrl(resolved);
     return (
         <Image
             src={resolved}
             alt={alt}
-            unoptimized={unoptimized ?? isNonRasterImageSrc(src)}
+            unoptimized={unoptimized ?? autoUnopt}
             {...rest}
         />
     );

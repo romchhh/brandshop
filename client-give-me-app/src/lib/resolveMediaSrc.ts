@@ -11,6 +11,10 @@ export function resolveMediaSrc(src: string | null | undefined): string | null |
     if (/^(https?:|data:|blob:)/i.test(s)) {
         return s;
     }
+    // Відносний протокол від CDN/API
+    if (s.startsWith('//') && s.includes('media')) {
+        return `https:${s}`;
+    }
     if (s.startsWith('/media/')) {
         const base = (process.env.NEXT_PUBLIC_API_HOST || '').trim().replace(/\/$/, '');
         if (base) {
