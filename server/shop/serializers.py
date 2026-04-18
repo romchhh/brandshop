@@ -67,8 +67,8 @@ class CatalogSerializer(serializers.ModelSerializer):
         return _absolute_media_url(obj.photo_banner)
 
     def get_products(self, obj):
-        # Нові товари отримують більший priority у save(); order_by('priority') давав старі спочатку.
-        active_products = obj.products.filter(active=True).order_by("-priority", "-id")
+        # Спочатку щойно оновлені/нові (sync), далі за priority — порядок каталогів не змінюється (CatalogList.order_by('priority')).
+        active_products = obj.products.filter(active=True).order_by("-updated_at", "-priority", "-id")
         return ProductSerializer(active_products, many=True).data
 
 

@@ -12,16 +12,12 @@ const nextConfig = {
         }
         return [];
     },
+    /** Статичні файли з public/media (volume) — кеш у браузері; імена файлів з суфіксом при зміні — не immutable. */
     async headers() {
         return [
             {
-                source: "/media/:path*",
-                headers: [
-                    {
-                        key: "Cache-Control",
-                        value: "public, max-age=604800, stale-while-revalidate=86400",
-                    },
-                ],
+                source: '/media/:path*',
+                headers: [{ key: 'Cache-Control', value: 'public, max-age=3600, stale-while-revalidate=86400' }],
             },
         ];
     },

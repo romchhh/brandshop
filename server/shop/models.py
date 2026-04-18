@@ -44,11 +44,6 @@ class Product(models.Model):
         blank=True,
         null=True,
     )
-    photo_import_source = models.TextField(
-        blank=True,
-        default='',
-        verbose_name='Останнє джерело фото з таблиці (інкрементний імпорт)',
-    )
     catalog = models.ForeignKey(Catalog, related_name='products', on_delete=models.CASCADE, verbose_name='Каталог')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

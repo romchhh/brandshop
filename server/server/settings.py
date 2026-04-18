@@ -65,7 +65,6 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'server.api_cache_headers.ApiCacheHeadersMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -74,6 +73,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Останній у списку — перший на фазі response: Cache-Control для GET /api/catalogs*, promotional
+    'server.api_cache_control_middleware.ApiCacheControlMiddleware',
 ]
 CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1",

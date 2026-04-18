@@ -55,6 +55,7 @@ services:
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
       # Порожньо = server/media у volume. На VPS: /var/www/brandshop/media (той самий шлях у nginx alias).
       DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT:-}
+      API_PUBLIC_CACHE_MAX_AGE: ${API_PUBLIC_CACHE_MAX_AGE:-120}
     networks:
      - djangonetwork
     depends_on:

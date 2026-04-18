@@ -35,9 +35,9 @@ export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_
 
     return (
         <List.Item className={classNames("product-item-preview", className)} onClick={goToProductShow}>
-            <Flex vertical className="product-preview-card" style={{ width: '100%' }}>
+            <Flex vertical style={{ width: '100%' }}>
                 <div>
-                    <div className="product-preview-media-wrap">
+                    <div style={{ position: 'relative' }}>
                         <Flex justify='center' className="product-preview-image-container">
                             {photo && (
                                 <CachedRemoteImage

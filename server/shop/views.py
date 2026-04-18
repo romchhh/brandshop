@@ -27,9 +27,8 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
 from rest_framework.views import APIView
-from django.db.models import Case, IntegerField, Sum, Value, When
+from django.db.models import Sum
 
-from .catalog_sheet_sources import catalog_titles_in_export_order
 from .telegram import TelegramAdmin
 from .wayforpayadmin import secret_key, WayForPayAdmin
 
@@ -163,7 +162,7 @@ class PromotionalProductList(generics.ListCreateAPIView):
         active=True,
         promotional_price__isnull=False,  # Ensures promotional price is not null
         promotional_price__gt=0                       # Ensures price is greater than zero
-    ).order_by("-priority", "-id")
+    ).order_by("-updated_at", "-priority", "-id")
     serializer_class = ProductSerializer
 
 
@@ -194,22 +193,8 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
         return super().get(request, *args, **kwargs)
 
 class CatalogList(generics.ListAPIView):
+    queryset = Catalog.objects.filter(active=True).order_by('priority')
     serializer_class = CatalogSerializer
-
-    def get_queryset(self):
-        titles = catalog_titles_in_export_order()
-        whens = [When(title=t, then=Value(i)) for i, t in enumerate(titles)]
-        return (
-            Catalog.objects.filter(active=True)
-            .annotate(
-                _export_order=Case(
-                    *whens,
-                    default=Value(len(titles)),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("_export_order", "id")
-        )
 
 
 

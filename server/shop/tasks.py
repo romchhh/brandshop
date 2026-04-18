@@ -40,4 +40,4 @@ def process_catalog_data():
                 if not Product.objects.filter(article=row[fields["article"]]).exists():
                     create_product(row, fields, catalog_title)
                 else:
-                    update_product(row, fields, catalog_title)
+                    update_product(row, fields)
