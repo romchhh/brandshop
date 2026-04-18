@@ -33,7 +33,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 12,
         "size": 13,
-        "photo": 14,
+        "photo": 16,
     },
     {
         "catalog": "Взуття",
@@ -43,7 +43,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Взуття",
@@ -53,7 +53,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 10,
         "size": 11,
-        "photo": 12,
+        "photo": 14,
     },
     {
         "catalog": "Взуття",
@@ -63,7 +63,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 7,
         "article": 8,
         "size": 9,
-        "photo": 10,
+        "photo": 12,
     },
     {
         "catalog": "Костюми",
@@ -73,7 +73,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 14,
         "size": 15,
-        "photo": 16,
+        "photo": 18,
     },
     {
         "catalog": "Костюми",
@@ -83,7 +83,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Костюми",
@@ -93,7 +93,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Куртки та жилетки",
@@ -103,7 +103,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 11,
         "size": 13,
-        "photo": 14,
+        "photo": 16,
     },
     {
         "catalog": "Куртки та жилетки",
@@ -113,7 +113,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 14,
-        "photo": 15,
+        "photo": 17,
     },
     {
         "catalog": "Штани",
@@ -123,7 +123,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 10,
         "article": 12,
         "size": 13,
-        "photo": 14,
+        "photo": 16,
     },
     {
         "catalog": "Спортивні штани",
@@ -133,7 +133,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Футболки та поло",
@@ -143,7 +143,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Сорочки",
@@ -153,7 +153,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Труси",
@@ -163,7 +163,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 2,
         "article": 4,
         "size": 5,
-        "photo": 6,
+        "photo": 8,
     },
     {
         "catalog": "Шорти",
@@ -173,7 +173,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "size": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Шорти",
@@ -183,7 +183,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 10,
         "size": 11,
-        "photo": 12,
+        "photo": 14,
     },
     {
         "catalog": "Шорти",
@@ -193,7 +193,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 7,
         "article": 9,
         "size": 10,
-        "photo": 11,
+        "photo": 13,
     },
     {
         "catalog": "Сумки та гаманці",
@@ -203,7 +203,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "count": 12,
-        "photo": 13,
+        "photo": 15,
     },
     {
         "catalog": "Сумки та гаманці",
@@ -213,7 +213,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 9,
         "article": 11,
         "count": 12,
-        "photo": 15,
+        "photo": 17,
     },
     {
         "catalog": "Ремені",
@@ -223,7 +223,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 10,
         "count": 11,
-        "photo": 12,
+        "photo": 14,
     },
     {
         "catalog": "Кепки та шапки",
@@ -233,7 +233,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 10,
         "count": 11,
-        "photo": 12,
+        "photo": 14,
     },
     {
         "catalog": "Кепки та шапки",
@@ -243,7 +243,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 8,
         "article": 10,
         "count": 11,
-        "photo": 12,
+        "photo": 14,
     },
     {
         "catalog": "Шкарпетки",
@@ -253,7 +253,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "price": 2,
         "article": 3,
         "count": 4,
-        "photo": 5,
+        "photo": 7,
     },
 ]
 
