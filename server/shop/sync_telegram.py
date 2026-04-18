@@ -80,6 +80,8 @@ def format_sync_summary(
     total_rows_iterated: int,
     row_errors: list[str],
     sheet_errors: list[str],
+    total_photo_fail: int = 0,
+    total_photo_unrecognized: int = 0,
 ) -> str:
     lines: list[str] = [
         "📦 Імпорт каталогу (Google Таблиці) завершено",
@@ -87,6 +89,15 @@ def format_sync_summary(
         f"📂 Блоків каталогу пройдено: {catalogs_completed}",
         f"📄 Рядків успішно створено/оновлено: {total_rows_iterated}",
     ]
+    photo_critical = total_photo_fail > 0 or total_photo_unrecognized > 0
+    if photo_critical:
+        lines.append("")
+        lines.append(
+            "🔴 КРИТИЧНО — фото товарів:\n"
+            f"— фото не завантажено (посилання було, файл не отримано): {total_photo_fail}\n"
+            f"— комірка фото не схожа на URL / не розпізнано: {total_photo_unrecognized}\n"
+            "Перевір доступ service account до файлів у Google Drive і формат посилань у таблиці."
+        )
     if sheet_errors:
         lines.append("")
         lines.append(f"❌ Помилки читання таблиць ({len(sheet_errors)}):")
@@ -101,9 +112,12 @@ def format_sync_summary(
             lines.append(f" • {s[:400]}")
         if len(row_errors) > 12:
             lines.append(f" … ще {len(row_errors) - 12}")
-    if not sheet_errors and not row_errors:
+    if not sheet_errors and not row_errors and not photo_critical:
         lines.append("")
-        lines.append("✅ Критичних помилок по рядках/таблицях не зафіксовано.")
+        lines.append("✅ Критичних проблем (рядки / таблиці / фото) не зафіксовано.")
+    elif not sheet_errors and not row_errors and photo_critical:
+        lines.append("")
+        lines.append("⚠️ Рядки/таблиці без збоїв, але є критичні проблеми з фото (див. вище).")
     return "\n".join(lines)[:TELEGRAM_MAX_MESSAGE]
 
 
@@ -150,14 +164,27 @@ def format_block_done(
     photo_fail_samples: list[str] | None = None,
     photo_unrecognized_samples: list[str] | None = None,
 ) -> str:
-    lines = [
-        f"✅ Блок «{catalog_title}» завершено",
-        f"Spreadsheet: {spreadsheet_id}",
-        f"— товарів успішно записано в БД (рядок без винятку): {rows_ok}",
-        f"— помилок по рядках: {rows_err}",
-        f"— фото не завантажено (посилання було, файл не отримано): {photo_fail}",
-        f"— у колонці фото є текст, але не URL / не розпізнано (потрібне https або посилання Drive): {photo_cell_unrecognized}",
-    ]
+    photo_critical = photo_fail > 0 or photo_cell_unrecognized > 0
+    lines = []
+    if photo_critical:
+        lines.append(
+            "🔴 КРИТИЧНО — фото: не всі товари отримали зображення з таблиці. "
+            f"Збій завантаження: {photo_fail}; комірка не URL: {photo_cell_unrecognized}."
+        )
+    lines.extend(
+        [
+            (
+                f"⚠️ Блок «{catalog_title}» завершено"
+                if photo_critical
+                else f"✅ Блок «{catalog_title}» завершено"
+            ),
+            f"Spreadsheet: {spreadsheet_id}",
+            f"— товарів успішно записано в БД (рядок без винятку): {rows_ok}",
+            f"— помилок по рядках: {rows_err}",
+            f"— фото не завантажено (посилання було, файл не отримано): {photo_fail}",
+            f"— у колонці фото є текст, але не URL / не розпізнано: {photo_cell_unrecognized}",
+        ]
+    )
     if err_samples:
         lines.append("")
         lines.append("Приклади помилок рядків:")

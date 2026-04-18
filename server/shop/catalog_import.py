@@ -10,6 +10,7 @@ import logging
 import time
 import os
 import re
+from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -34,6 +35,34 @@ from shop.sync_telegram import (
 _SERVER_ROOT = Path(__file__).resolve().parent.parent
 CREDENTIALS_FILE = os.environ.get("GOOGLE_CREDENTIALS_FILE") or str(_SERVER_ROOT / "credentials.json")
 _sync_logger = logging.getLogger(__name__)
+
+
+class _SyncLogBridge:
+    """Під час run_product_sync дублює повідомлення в log() (Celery / manage.py), не лише в django.logging."""
+
+    fn: Callable[[str], None] | None = None
+
+
+def _sync_emit(msg: str) -> None:
+    """Завжди WARNING у логері (видно за замовчуванням) + той самий текст у log(...) імпорту."""
+    _sync_logger.warning(msg)
+    fn = _SyncLogBridge.fn
+    if callable(fn):
+        try:
+            fn(msg)
+        except Exception:
+            pass
+
+
+def _sync_log_line(msg: str) -> None:
+    """Помилки/етапи завантаження фото: WARNING у логер + у stdout (log) лише під час синхронізації."""
+    _sync_logger.warning(msg)
+    if _sync_import_active and callable(_SyncLogBridge.fn):
+        try:
+            _SyncLogBridge.fn(msg)
+        except Exception:
+            pass
+
 
 # Типовий id файлу в Google Drive (лише символи, без слешів — якщо вставили id у комірку без URL)
 _BARE_DRIVE_FILE_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{27,100}$")
@@ -247,9 +276,12 @@ def run_product_sync(log=print):
     sheet_errors: list[str] = []
     catalogs_completed = 0
     rows_processed = 0
+    total_photo_fail = 0
+    total_photo_unrecognized = 0
 
     send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
     _sync_import_set_active(True)
+    _SyncLogBridge.fn = log
     try:
         for catalog_title, spreadsheet_id, fields in iter_catalog_import_jobs():
             range_name = fields["sheet"]
@@ -317,20 +349,32 @@ def run_product_sync(log=print):
 
             catalogs_completed += 1
             log(f"--- Завершено блок: «{catalog_title}» / {spreadsheet_id} ---")
+            pf = int(_sync_block.get("photo_fail", 0))
+            pu = int(_sync_block.get("photo_cell_unrecognized", 0))
+            total_photo_fail += pf
+            total_photo_unrecognized += pu
+            if pf > 0 or pu > 0:
+                msg = (
+                    f"🔴 КРИТИЧНО (фото): блок «{catalog_title}» — не завантажено: {pf}, "
+                    f"комірка не URL: {pu}"
+                )
+                _sync_logger.error(msg)
+                log(msg)
             send_catalog_sync_message(
                 format_block_done(
                     catalog_title,
                     spreadsheet_id,
                     _sync_block.get("rows_ok", 0),
                     _sync_block.get("rows_err", 0),
-                    _sync_block.get("photo_fail", 0),
+                    pf,
                     list(_sync_block.get("err_samples") or []),
-                    photo_cell_unrecognized=_sync_block.get("photo_cell_unrecognized", 0),
+                    photo_cell_unrecognized=pu,
                     photo_fail_samples=list(_sync_block.get("photo_fail_samples") or []),
                     photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
                 )
             )
     finally:
+        _SyncLogBridge.fn = None
         _sync_import_set_active(False)
 
     duration = time.monotonic() - t0
@@ -340,8 +384,17 @@ def run_product_sync(log=print):
         total_rows_iterated=rows_processed,
         row_errors=row_errors,
         sheet_errors=sheet_errors,
+        total_photo_fail=total_photo_fail,
+        total_photo_unrecognized=total_photo_unrecognized,
     )
     send_catalog_sync_message(summary)
+    if total_photo_fail > 0 or total_photo_unrecognized > 0:
+        msg = (
+            f"🔴 КРИТИЧНО — підсумок фото за весь імпорт: не завантажено файл: {total_photo_fail}, "
+            f"комірка не URL: {total_photo_unrecognized}"
+        )
+        _sync_logger.error(msg)
+        log(msg)
 
 
 def get_catalog_data(SPREADSHEET_ID, RANGE_NAME):
@@ -423,11 +476,9 @@ def update_product(row, fields):
     elif fields.get("count") is not None and fields["count"] < len(row) and row[fields["count"]] != "" and product.active is False:
         product.active = True
         product.save(update_fields=["active"])
-        return
     elif fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] != "" and product.active is False:
         product.active = True
         product.save(update_fields=["active"])
-        return
 
     if fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] != "":
         sizes = _sizes_from_row(row, fields)
@@ -458,30 +509,26 @@ def update_product(row, fields):
     if fields["photo"] < len(row):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
-        if raw and not _photo_cell_usable(cell):
+        if not raw:
+            _sync_logger.debug("sync photo skip empty cell: article=%s", product.article)
+        elif raw and not _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
-            _sync_logger.warning(
-                "sync photo: комірка не схожа на URL, article=%s preview=%s",
-                product.article,
-                pv,
+            _sync_emit(
+                f"sync photo: article={product.article} — комірка не схожа на URL, з таблиці: «{pv}»"
             )
             sync_block_photo_cell_unrecognized(
                 f"арт.{product.article}: «{pv}» (потрібен https або посилання Google Drive / id файлу)"
             )
         elif _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
-            _sync_logger.info(
-                "sync photo try: article=%s cell_preview=%s",
-                product.article,
-                pv,
-            )
+            _sync_emit(f"sync photo try: article={product.article} — посилання з таблиці: «{pv}»")
             ph, ph_err = download_photo(cell)
             if ph is not None:
                 product.photo.save(f"{product.article}_main.jpg", ph, save=True)
-                _sync_logger.info("sync photo ok: article=%s", product.article)
+                _sync_emit(f"sync photo ok: article={product.article}")
             else:
                 detail = _photo_fail_detail(str(product.article), cell, ph_err)
-                _sync_logger.warning("sync photo failed: %s", detail)
+                _sync_emit(f"sync photo failed: {detail}")
                 sync_block_photo_fail(detail)
 
 
@@ -527,30 +574,26 @@ def create_product(row, fields, catalog_title):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
         art = str(row[fields["article"]]).strip()
-        if raw and not _photo_cell_usable(cell):
+        if not raw:
+            _sync_logger.debug("sync photo skip empty cell: article=%s", art)
+        elif raw and not _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
-            _sync_logger.warning(
-                "sync photo: комірка не схожа на URL, article=%s preview=%s",
-                art,
-                pv,
+            _sync_emit(
+                f"sync photo: article={art} — комірка не схожа на URL, з таблиці: «{pv}»"
             )
             sync_block_photo_cell_unrecognized(
                 f"арт.{art}: «{pv}» (потрібен https або посилання Google Drive / id файлу)"
             )
         elif _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
-            _sync_logger.info(
-                "sync photo try: article=%s cell_preview=%s",
-                art,
-                pv,
-            )
+            _sync_emit(f"sync photo try: article={art} — посилання з таблиці: «{pv}»")
             photo, ph_err = download_photo(cell)
             if photo is not None:
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
-                _sync_logger.info("sync photo ok: article=%s", art)
+                _sync_emit(f"sync photo ok: article={art}")
             else:
                 detail = _photo_fail_detail(art, cell, ph_err)
-                _sync_logger.warning("sync photo failed: %s", detail)
+                _sync_emit(f"sync photo failed: {detail}")
                 sync_block_photo_fail(detail)
 
     for size in dict.fromkeys(sizes):
@@ -611,7 +654,7 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
     """
     if not os.path.isfile(CREDENTIALS_FILE):
         msg = f"немає credentials за шляхом {CREDENTIALS_FILE}"
-        _sync_logger.warning("download_photo: %s", msg)
+        _sync_log_line(f"[sync photo download] Drive API: {msg}")
         return None, msg
     try:
         creds = Credentials.from_service_account_file(
@@ -631,15 +674,16 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
         buf.seek(0)
         data = buf.read()
         if not data:
+            _sync_log_line(
+                f"[sync photo download] Drive API: порожня відповідь для file_id={file_id}"
+            )
             return None, "Drive API: порожня відповідь"
         return data, None
     except HttpError as e:
         status = getattr(e.resp, "status", None)
-        _sync_logger.warning(
-            "Drive API: не вдалося завантажити file_id=%s (HTTP %s). "
-            "Надайте service account з credentials.json доступ до файлу/папки в Google Drive.",
-            file_id,
-            status,
+        _sync_log_line(
+            f"[sync photo download] Drive API: file_id={file_id} HTTP {status} — "
+            f"надайте service account з credentials.json доступ до файлу/папки в Google Drive."
         )
         if status == 404:
             return None, "Drive API 404: файл не знайдено або немає доступу (поділіться з service account)"
@@ -647,7 +691,7 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
             return None, "Drive API 403: заборонено — додайте service account з credentials.json як читача файлу"
         return None, f"Drive API: помилка HTTP {status}"
     except Exception as e:
-        _sync_logger.warning("Drive API: помилка file_id=%s: %s", file_id, e)
+        _sync_log_line(f"[sync photo download] Drive API: file_id={file_id} виняток: {e!s}")
         return None, f"Drive API: {e!s}"
 
 
@@ -672,14 +716,18 @@ def _download_photo_via_http(file_id: str) -> tuple[ContentFile | None, str | No
     try:
         r = session.get(base, params=params, timeout=120)
         if r.status_code != 200:
-            return None, f"uc export: HTTP {r.status_code}"
+            msg = f"uc export: HTTP {r.status_code}"
+            _sync_log_line(f"[sync photo download] file_id={file_id} {msg}")
+            return None, msg
 
         cf, err = _content_from_bytes(r.content)
         if cf is not None:
             return cf, None
 
         if not _response_looks_like_html(r.content):
-            return None, err or "невідомий формат від uc export"
+            msg = err or "невідомий формат від uc export"
+            _sync_log_line(f"[sync photo download] file_id={file_id} uc export: {msg}")
+            return None, msg
 
         confirm = None
         for cookie in session.cookies:
@@ -729,12 +777,14 @@ def _download_photo_via_http(file_id: str) -> tuple[ContentFile | None, str | No
                             return cf4, None
                     break
 
-        return None, (
+        msg = (
             "Google uc export: замість зображення HTML (немає доступу до файлу в Drive для service account "
             "або потрібне підтвердження завантаження для великого файлу)"
         )
+        _sync_log_line(f"[sync photo download] file_id={file_id} {msg}")
+        return None, msg
     except Exception as e:
-        _sync_logger.warning("uc export exception file_id=%s: %s", file_id, e)
+        _sync_log_line(f"[sync photo download] file_id={file_id} uc export виняток: {e!s}")
         return None, f"uc export: {e!s}"
 
 
@@ -748,16 +798,22 @@ def _download_photo_direct_http(url: str) -> tuple[ContentFile | None, str | Non
             headers={"User-Agent": "Mozilla/5.0 (compatible; GiveMeCatalogSync/1.0)"},
         )
         if r.status_code != 200:
-            return None, f"пряме посилання: HTTP {r.status_code}"
+            msg = f"пряме посилання: HTTP {r.status_code}"
+            _sync_log_line(f"[sync photo download] {msg} url={url[:200]}")
+            return None, msg
         data = r.content
         if len(data) > 25 * 1024 * 1024:
-            return None, "файл занадто великий (>25 МБ)"
+            msg = "файл занадто великий (>25 МБ)"
+            _sync_log_line(f"[sync photo download] {msg} url={url[:200]}")
+            return None, msg
         cf, err = _content_from_bytes(data)
         if cf is not None:
             return cf, None
-        return None, err or "пряме посилання: не зображення"
+        msg = err or "пряме посилання: не зображення"
+        _sync_log_line(f"[sync photo download] {msg} url={url[:200]}")
+        return None, msg
     except Exception as e:
-        _sync_logger.warning("direct photo HTTP failed url=%s: %s", url[:220], e)
+        _sync_log_line(f"[sync photo download] пряме посилання виняток url={url[:200]}: {e!s}")
         return None, f"пряме посилання: {e!s}"
 
 
@@ -770,6 +826,7 @@ def download_photo(link) -> tuple[ContentFile | None, str | None]:
     try:
         s = (link or "").strip()
         if not s:
+            _sync_log_line("[sync photo download] порожнє посилання в комірці фото")
             return None, "порожнє посилання"
         file_id = _drive_file_id(s)
         if file_id:
@@ -778,26 +835,32 @@ def download_photo(link) -> tuple[ContentFile | None, str | None]:
                 cf, conv_err = _content_from_bytes(data)
                 if cf is not None:
                     return cf, None
-                _sync_logger.debug(
-                    "download_photo: Drive API не JPEG/PNG, пробуємо HTTP file_id=%s (%s)",
-                    file_id,
-                    conv_err,
+                _sync_log_line(
+                    f"[sync photo download] Drive API: відповідь не схожа на зображення, file_id={file_id}, "
+                    f"пробуємо HTTP fallback ({conv_err or 'невідомо'})"
                 )
 
             cf_http, http_err = _download_photo_via_http(file_id)
             if cf_http is not None:
                 return cf_http, None
             parts = [x for x in (api_err, http_err) if x]
-            return None, " / ".join(parts) if parts else "не вдалось завантажити з Drive"
+            err = " / ".join(parts) if parts else "не вдалось завантажити з Drive"
+            _sync_log_line(f"[sync photo download] file_id={file_id} після API+HTTP: {err}")
+            return None, err
 
         low = s.lower()
         if low.startswith(("http://", "https://")) and "drive.google.com" not in low:
             return _download_photo_direct_http(s)
         if "drive.google.com" in low and not file_id:
-            return None, "посилання на Drive, але не вдалось витягти file id з тексту комірки"
-        return None, "не знайдено file id і це не пряме https-посилання на файл"
+            msg = "посилання на Drive, але не вдалось витягти file id з тексту комірки"
+            _sync_log_line(f"[sync photo download] {msg} комірка={s[:180]}")
+            return None, msg
+        msg = "не знайдено file id і це не пряме https-посилання на файл"
+        _sync_log_line(f"[sync photo download] {msg} комірка={s[:180]}")
+        return None, msg
     except Exception as e:
         _sync_logger.exception("download_photo failed link=%s: %s", link, e)
+        _sync_log_line(f"[sync photo download] виняток: {e!s} link={str(link)[:200]}")
         return None, f"виняток: {e!s}"
 
 
