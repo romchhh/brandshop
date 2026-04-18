@@ -12,10 +12,32 @@ import {API_HOST} from "@/lib/constants";
 
 function* fetchProductSaga(action) {
     try {
-        const { productId, userId } = action.payload
-        const response = yield call(axios.get, `${API_HOST}/api/products/${productId}`, {headers: {'ngrok-skip-browser-warning': 'test'}, params: {userId}}); // Replace with your actual API endpoint
-        yield put(fetchProductSuccess(response.data));
+        const { productId, userId } = action.payload;
+        const url = `${API_HOST}/api/products/${productId}`;
+        const response = yield call(axios.get, url, {
+            headers: { "ngrok-skip-browser-warning": "test" },
+            params: { userId },
+        });
+        const data = response.data;
+        console.log("[BrandShop] Товар з API OK", {
+            requestUrl: url,
+            API_HOST,
+            productId,
+            photo: data?.photo ?? null,
+            product_properties_photos:
+                data?.product_properties?.map((p: { id: number; title: string; photo?: string }) => ({
+                    id: p.id,
+                    title: p.title,
+                    photo: p.photo ?? null,
+                })) ?? [],
+        });
+        yield put(fetchProductSuccess(data));
     } catch (error) {
+        console.error("[BrandShop] Товар з API помилка", {
+            productId: action.payload?.productId,
+            API_HOST,
+            error,
+        });
     }
 }
 
