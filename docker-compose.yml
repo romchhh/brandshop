@@ -82,6 +82,7 @@ services:
       args:
         NEXT_PUBLIC_API_HOST: ${NEXT_PUBLIC_API_HOST:-http://localhost:8000}
         NEXT_PUBLIC_IMAGE_UPSTREAM: ${NEXT_PUBLIC_IMAGE_UPSTREAM:-http://server:8000}
+        NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
         NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-1}
     container_name: react_client
     ports:
@@ -89,7 +90,11 @@ services:
     environment:
       NEXT_PUBLIC_API_HOST: ${NEXT_PUBLIC_API_HOST:-http://localhost:8000}
       NEXT_PUBLIC_IMAGE_UPSTREAM: ${NEXT_PUBLIC_IMAGE_UPSTREAM:-http://server:8000}
+      NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
       NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-1}
+    volumes:
+      # Фото з Django MEDIA: той самий каталог, що server/media — в міні-апі як /media/product_photos/...
+      - ./server/media:/app/public/media
     networks:
       - djangonetwork
     depends_on:

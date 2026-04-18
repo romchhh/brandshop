@@ -9,12 +9,6 @@
     border-radius: 20px;
 }
 
-.product-item-preview .ant-space-item:first-child div{
-    width: 150px;
-    height: 166px;
-    margin-top: -10px;
-}
-
 .product-preview-title {
     font-family: var(--main-font);
     font-style: normal;

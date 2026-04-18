@@ -43,9 +43,15 @@ export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_
                                 <CachedRemoteImage
                                     src={photo}
                                     alt={title}
-                                    fill
+                                    width={800}
+                                    height={800}
                                     sizes="(max-width: 768px) 50vw, 200px"
-                                    style={{ borderRadius: '16px', objectFit: 'cover' }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        borderRadius: '16px',
+                                        objectFit: 'cover',
+                                    }}
                                 />
                             )}
                         </Flex>

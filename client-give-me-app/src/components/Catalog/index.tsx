@@ -101,9 +101,14 @@ export default function Catalog() {
                                 <CachedRemoteImage
                                     src={item.photo || item.products?.[0]?.photo}
                                     alt={item.title}
-                                    fill
+                                    width={800}
+                                    height={560}
                                     sizes="(max-width: 480px) 100vw, 360px"
-                                    style={{ objectFit: 'cover' }}
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                    }}
                                 />
                             )}
                         </div>

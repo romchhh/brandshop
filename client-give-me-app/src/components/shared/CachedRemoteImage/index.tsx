@@ -38,7 +38,8 @@ export function CachedRemoteImage({
     const resolved = resolveMediaSrc(src) ?? src;
     const autoUnopt =
         isNonRasterImageSrc(resolved) ||
-        isRemoteAbsoluteUrl(resolved);
+        isRemoteAbsoluteUrl(resolved) ||
+        resolved.startsWith("/media/");
     return (
         <Image
             src={resolved}
