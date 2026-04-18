@@ -148,6 +148,7 @@ def format_block_done(
     err_samples: list[str],
     photo_cell_unrecognized: int = 0,
     photo_fail_samples: list[str] | None = None,
+    photo_unrecognized_samples: list[str] | None = None,
 ) -> str:
     lines = [
         f"✅ Блок «{catalog_title}» завершено",
@@ -164,8 +165,13 @@ def format_block_done(
             lines.append(f" • {s[:350]}")
     if photo_fail_samples:
         lines.append("")
-        lines.append("Приклади (чому не вдалось фото):")
+        lines.append("Приклади (що було в таблиці → чому не вдалось завантажити файл):")
         for s in photo_fail_samples[:5]:
+            lines.append(f" • {s[:380]}")
+    if photo_unrecognized_samples:
+        lines.append("")
+        lines.append("Приклади (що прийшло з комірки фото — не схоже на посилання):")
+        for s in photo_unrecognized_samples[:5]:
             lines.append(f" • {s[:380]}")
     return "\n".join(lines)[:TELEGRAM_MAX_MESSAGE]
 

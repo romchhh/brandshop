@@ -62,6 +62,7 @@ def _sync_block_reset(
         "photo_fail": 0,
         "photo_cell_unrecognized": 0,
         "photo_fail_samples": [],
+        "photo_unrecognized_samples": [],
         "err_samples": [],
     }
 
@@ -92,11 +93,15 @@ def sync_block_photo_fail(detail: str = "") -> None:
             samples.append(detail[:450])
 
 
-def sync_block_photo_cell_unrecognized() -> None:
+def sync_block_photo_cell_unrecognized(detail: str = "") -> None:
     """У колонці фото щось є, але це не схоже на http(s) / Drive — імпорт фото пропущено."""
     if not _sync_import_active:
         return
     _sync_block["photo_cell_unrecognized"] = int(_sync_block.get("photo_cell_unrecognized", 0)) + 1
+    if detail:
+        samples: list = _sync_block.setdefault("photo_unrecognized_samples", [])
+        if len(samples) < 6:
+            samples.append(detail[:450])
 
 
 def _normalize_price(raw) -> Decimal | None:
@@ -160,6 +165,22 @@ def _photo_cell_usable(cell) -> bool:
     if _looks_like_bare_drive_file_id(s):
         return True
     return False
+
+
+def _photo_cell_preview_for_log(cell, max_len: int = 220) -> str:
+    """Що саме прийшло з Google Sheets у колонці фото — для логів і Telegram (один рядок, обрізано)."""
+    if cell is None:
+        return "(порожньо)"
+    s = str(cell).replace("\n", " ").replace("\r", " ").strip()
+    s = re.sub(r"\s+", " ", s)
+    if len(s) > max_len:
+        return s[: max_len - 1] + "…"
+    return s
+
+
+def _photo_fail_detail(article: str, cell, ph_err: str | None) -> str:
+    prev = _photo_cell_preview_for_log(cell, max_len=200)
+    return f"арт.{article}: з таблиці «{prev}» → {ph_err or 'невідома причина'}"
 
 
 def _drive_file_id(link: str) -> str | None:
@@ -306,6 +327,7 @@ def run_product_sync(log=print):
                     list(_sync_block.get("err_samples") or []),
                     photo_cell_unrecognized=_sync_block.get("photo_cell_unrecognized", 0),
                     photo_fail_samples=list(_sync_block.get("photo_fail_samples") or []),
+                    photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
                 )
             )
     finally:
@@ -437,13 +459,30 @@ def update_product(row, fields):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
         if raw and not _photo_cell_usable(cell):
-            sync_block_photo_cell_unrecognized()
+            pv = _photo_cell_preview_for_log(cell)
+            _sync_logger.warning(
+                "sync photo: комірка не схожа на URL, article=%s preview=%s",
+                product.article,
+                pv,
+            )
+            sync_block_photo_cell_unrecognized(
+                f"арт.{product.article}: «{pv}» (потрібен https або посилання Google Drive / id файлу)"
+            )
         elif _photo_cell_usable(cell):
+            pv = _photo_cell_preview_for_log(cell)
+            _sync_logger.info(
+                "sync photo try: article=%s cell_preview=%s",
+                product.article,
+                pv,
+            )
             ph, ph_err = download_photo(cell)
             if ph is not None:
                 product.photo.save(f"{product.article}_main.jpg", ph, save=True)
+                _sync_logger.info("sync photo ok: article=%s", product.article)
             else:
-                sync_block_photo_fail(f"{product.article}: {ph_err or 'невідома причина'}")
+                detail = _photo_fail_detail(str(product.article), cell, ph_err)
+                _sync_logger.warning("sync photo failed: %s", detail)
+                sync_block_photo_fail(detail)
 
 
 def create_product(row, fields, catalog_title):
@@ -487,19 +526,32 @@ def create_product(row, fields, catalog_title):
     if fields["photo"] < len(row):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
+        art = str(row[fields["article"]]).strip()
         if raw and not _photo_cell_usable(cell):
-            sync_block_photo_cell_unrecognized()
+            pv = _photo_cell_preview_for_log(cell)
+            _sync_logger.warning(
+                "sync photo: комірка не схожа на URL, article=%s preview=%s",
+                art,
+                pv,
+            )
+            sync_block_photo_cell_unrecognized(
+                f"арт.{art}: «{pv}» (потрібен https або посилання Google Drive / id файлу)"
+            )
         elif _photo_cell_usable(cell):
+            pv = _photo_cell_preview_for_log(cell)
+            _sync_logger.info(
+                "sync photo try: article=%s cell_preview=%s",
+                art,
+                pv,
+            )
             photo, ph_err = download_photo(cell)
             if photo is not None:
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
+                _sync_logger.info("sync photo ok: article=%s", art)
             else:
-                _sync_logger.warning(
-                    "create_product: skipped photo article=%s reason=%s",
-                    row[fields["article"]],
-                    ph_err,
-                )
-                sync_block_photo_fail(f"{row[fields['article']]}: {ph_err or 'невідома причина'}")
+                detail = _photo_fail_detail(art, cell, ph_err)
+                _sync_logger.warning("sync photo failed: %s", detail)
+                sync_block_photo_fail(detail)
 
     for size in dict.fromkeys(sizes):
         _merge_product_property(product, size)
