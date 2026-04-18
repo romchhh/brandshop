@@ -113,7 +113,7 @@ export default function Catalog() {
                             )}
                         </div>
                         <div className="category-info">
-                            <div className="category-title">{item.title.toUpperCase()}</div>
+                            <div className="category-title">{item.title}</div>
                             <div className="category-count">{item.products?.length || 0} товарів</div>
                             <div className="category-arrow">›</div>
                         </div>

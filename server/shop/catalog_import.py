@@ -10,18 +10,20 @@ import logging
 import time
 import os
 import re
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import requests
 from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaIoBaseDownload
 
-from shop.catalog_sheet_sources import iter_catalog_import_jobs
+from shop.catalog_sheet_sources import CATALOG_SHEET_SOURCES, iter_catalog_import_jobs
 from shop.models import Catalog, Product, ProductProperty
 from shop.sync_telegram import (
     format_block_done,
@@ -276,6 +278,132 @@ def _sizes_from_row(row, fields):
     return sizes
 
 
+def _jobs_expected_per_catalog() -> Counter[str]:
+    """Скільки окремих таблиць (yield у iter) на кожну назву каталогу — для безпечного деактивування."""
+    c: Counter[str] = Counter()
+    for item in CATALOG_SHEET_SOURCES:
+        c[item["catalog"]] += len(item.get("link") or [])
+    return c
+
+
+def _prune_other_main_photo_files(article: str, keep_relative_path: str | None) -> None:
+    """
+    Видаляє з product_photos усі файли «{article}_main*», крім keep_relative_path.
+    Прибирає залишки після старих збережень Django (_main_abc123.jpg тощо).
+    """
+    folder = "product_photos"
+    keep = (keep_relative_path or "").replace("\\", "/").strip()
+    try:
+        _, files = default_storage.listdir(folder)
+    except OSError:
+        return
+    prefix = f"{article}_main"
+    for fn in files:
+        if not fn.startswith(prefix):
+            continue
+        rel = f"{folder}/{fn}"
+        rel_norm = rel.replace("\\", "/")
+        if keep and rel_norm == keep:
+            continue
+        try:
+            default_storage.delete(rel)
+            _sync_logger.info("sync photo prune: видалено старий файл %s", rel_norm)
+        except Exception as exc:
+            _sync_logger.warning("sync photo prune: не вдалось видалити %s: %s", rel_norm, exc)
+
+
+def _normalize_photo_cell_for_compare(cell) -> str:
+    """Один і той самий файл Drive може мати різні URL — порівнюємо за file id або нормалізованим рядком."""
+    if cell is None:
+        return ""
+    s = str(cell).strip()
+    if not s:
+        return ""
+    fid = _drive_file_id(s)
+    if fid:
+        return f"drive:{fid}"
+    return s[:4000]
+
+
+def _clear_product_photo_from_storage(product: Product) -> None:
+    """Повністю прибирає фото товару з диска та з БД (порожня комірка в таблиці)."""
+    art = str(product.article or "").strip()
+    if product.photo:
+        try:
+            product.photo.delete(save=True)
+        except Exception as exc:
+            _sync_logger.warning("sync photo clear: %s", exc)
+    Product.objects.filter(pk=product.pk).update(photo_import_source="")
+    product.photo_import_source = ""
+    if art:
+        _prune_other_main_photo_files(art, None)
+    _sync_emit(f"sync photo cleared: article={art} — комірка фото порожня, файли прибрано")
+
+
+def _sync_size_properties(product: Product, desired_titles: list[str]) -> None:
+    """Оновлює розміри без «обнулення всіх»: лишаємо активними лише потрібні, зайві вимикаємо."""
+    desired_ordered = list(dict.fromkeys(desired_titles))
+    desired_set = set(desired_ordered)
+    existing = {p.title: p for p in product.product_properties.all()}
+    for title in desired_ordered:
+        prop = existing.get(title)
+        if prop is None:
+            ProductProperty.objects.create(title=title, product=product, active=True)
+        elif not prop.active:
+            prop.active = True
+            prop.save(update_fields=["active"])
+    for title, prop in existing.items():
+        if title not in desired_set and prop.active:
+            prop.active = False
+            prop.save(update_fields=["active"])
+
+
+def _finalize_products_absent_from_sheets(
+    articles_by_catalog: dict[str, set[str]],
+    jobs_completed: Counter[str],
+    jobs_expected: Counter[str],
+    catalog_had_empty_sheet: dict[str, bool],
+    log,
+) -> None:
+    """
+    Деактивує товари каталогу, яких немає в жодному рядку таблиць після повного проходу всіх аркушів.
+    Якщо хоч одна таблиця каталогу не завантажилась — не чіпаємо (неповний набір артикулів).
+    Якщо хоч один аркуш порожній — не деактивуємо (кілька таблиць на один каталог; інакше можна
+    прибрати товари з «іншого» аркуша).
+    """
+    for cat_title, expected_n in jobs_expected.items():
+        done_n = jobs_completed.get(cat_title, 0)
+        if done_n < expected_n:
+            msg = (
+                f"sync: деактивацію пропущено для «{cat_title}»: завантажено {done_n}/{expected_n} таблиць "
+                f"(не деактивуємо, щоб не прибрати товари з непрочитаного аркуша)"
+            )
+            _sync_logger.warning(msg)
+            log(msg)
+            continue
+        if catalog_had_empty_sheet.get(cat_title):
+            msg = (
+                f"sync: деактивацію пропущено для «{cat_title}»: хоча б один аркуш без рядків даних "
+                f"(неприпустимо об'єднувати з кількома таблицями на каталог)"
+            )
+            _sync_logger.warning(msg)
+            log(msg)
+            continue
+        seen = articles_by_catalog.get(cat_title) or set()
+        if not seen:
+            continue
+        try:
+            catalog = Catalog.objects.get(title=cat_title)
+        except Catalog.DoesNotExist:
+            continue
+        qs = Product.objects.filter(catalog=catalog, active=True).exclude(article__in=seen)
+        n = qs.update(active=False)
+        if n:
+            msg = f"sync: деактивовано {n} товар(ів) каталогу «{cat_title}» — немає в актуальних таблицях"
+            _sync_logger.warning(msg)
+            log(msg)
+
+
 def _merge_product_property(product: Product, title: str) -> ProductProperty:
     """
     Один запис ProductProperty на пару (product, title).
@@ -313,6 +441,10 @@ def run_product_sync(log=print):
     send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
     _sync_import_set_active(True)
     _SyncLogBridge.fn = log
+    jobs_expected = _jobs_expected_per_catalog()
+    jobs_completed: Counter[str] = Counter()
+    articles_by_catalog: dict[str, set[str]] = defaultdict(set)
+    catalog_had_empty_sheet: dict[str, bool] = defaultdict(bool)
     try:
         for catalog_title, spreadsheet_id, fields in iter_catalog_import_jobs():
             range_name = fields["sheet"]
@@ -336,7 +468,10 @@ def run_product_sync(log=print):
                 notify_sheet_error(catalog_title, spreadsheet_id, exc)
                 continue
 
+            jobs_completed[catalog_title] += 1
+
             if len(rows) == 0:
+                catalog_had_empty_sheet[catalog_title] = True
                 log("Таблиця порожня або діапазон не знайдено.")
                 send_catalog_sync_message(format_block_empty(catalog_title, spreadsheet_id))
                 catalogs_completed += 1
@@ -361,7 +496,10 @@ def run_product_sync(log=print):
                     if not Product.objects.filter(article=row[fields["article"]]).exists():
                         create_product(row, fields, catalog_title)
                     else:
-                        update_product(row, fields)
+                        update_product(row, fields, catalog_title)
+                    articles_by_catalog[catalog_title].add(
+                        str(row[fields["article"]]).strip()
+                    )
                     rows_processed += 1
                     _sync_block_row_ok()
                 except Exception as exc:
@@ -404,6 +542,13 @@ def run_product_sync(log=print):
                     photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
                 )
             )
+        _finalize_products_absent_from_sheets(
+            articles_by_catalog,
+            jobs_completed,
+            jobs_expected,
+            catalog_had_empty_sheet,
+            log,
+        )
     finally:
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)
@@ -468,8 +613,14 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
     return values
 
 
-def update_product(row, fields):
+def update_product(row, fields, catalog_title: str):
     product = Product.objects.get(article=row[fields["article"]])
+    catalog = Catalog.objects.filter(title=catalog_title).first()
+    if catalog is None:
+        catalog = Catalog.objects.create(title=catalog_title)
+    if product.catalog_id != catalog.pk:
+        product.catalog = catalog
+        product.save(update_fields=["catalog"])
 
     if fields["title"] < len(row) and row[fields["title"]] != "":
         product.active = True
@@ -520,11 +671,7 @@ def update_product(row, fields):
             return
 
         if len(sizes) != 0:
-            product.product_properties.all().update(active=False)
-            for size in sizes:
-                prop = _merge_product_property(product, size)
-                prop.active = True
-                prop.save(update_fields=["active"])
+            _sync_size_properties(product, sizes)
 
     if fields.get("count") is not None and fields["count"] < len(row):
         cnt = str(row[fields["count"]]).strip()
@@ -541,7 +688,10 @@ def update_product(row, fields):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
         if not raw:
-            _sync_logger.debug("sync photo skip empty cell: article=%s", product.article)
+            if product.photo or (product.photo_import_source or "").strip():
+                _clear_product_photo_from_storage(product)
+            else:
+                _sync_logger.debug("sync photo skip empty cell: article=%s", product.article)
         elif raw and not _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
             _sync_emit(
@@ -552,25 +702,46 @@ def update_product(row, fields):
             )
         elif _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
-            _sync_emit(f"sync photo try: article={product.article} — посилання з таблиці: «{pv}»")
-            ph, ph_err = download_photo(cell)
-            if ph is not None:
-                # Видаляємо старий файл лише після успішного завантаження нового,
-                # щоб не накопичувались дублікати з суфіксами (_DnryELM, _ah4e0tR…).
-                # Django додає суфікс якщо файл вже існує — тому явно видаляємо і очищаємо поле.
+            src_key = _normalize_photo_cell_for_compare(cell)
+            if (
+                src_key
+                and (product.photo_import_source or "") == src_key
+                and product.photo
+                and product.photo.name
+            ):
+                _sync_emit(
+                    f"sync photo skip (без змін): article={product.article} — те саме джерело що й раніше"
+                )
+                product.refresh_from_db(fields=["photo"])
                 if product.photo and product.photo.name:
-                    try:
-                        product.photo.storage.delete(product.photo.name)
-                    except Exception:
-                        pass
-                    product.photo = None
-                    product.save(update_fields=["photo"])
-                product.photo.save(f"{product.article}_main.jpg", ph, save=True)
-                _verify_product_photo_saved(product, str(product.article))
+                    _prune_other_main_photo_files(str(product.article), product.photo.name)
             else:
-                detail = _photo_fail_detail(str(product.article), cell, ph_err)
-                _sync_emit(f"sync photo failed: {detail}")
-                sync_block_photo_fail(detail)
+                _sync_emit(f"sync photo try: article={product.article} — посилання з таблиці: «{pv}»")
+                ph, ph_err = download_photo(cell)
+                if ph is not None:
+                    # Видаляємо старий файл лише після успішного завантаження нового,
+                    # щоб не накопичувались дублікати з суфіксами (_DnryELM, _ah4e0tR…).
+                    # Django додає суфікс якщо файл вже існує — тому явно видаляємо і очищаємо поле.
+                    if product.photo and product.photo.name:
+                        try:
+                            product.photo.storage.delete(product.photo.name)
+                        except Exception:
+                            pass
+                        product.photo = None
+                        product.save(update_fields=["photo"])
+                    product.photo.save(f"{product.article}_main.jpg", ph, save=True)
+                    Product.objects.filter(pk=product.pk).update(
+                        photo_import_source=src_key
+                    )
+                    product.photo_import_source = src_key
+                    product.refresh_from_db(fields=["photo"])
+                    if product.photo and product.photo.name:
+                        _prune_other_main_photo_files(str(product.article), product.photo.name)
+                    _verify_product_photo_saved(product, str(product.article))
+                else:
+                    detail = _photo_fail_detail(str(product.article), cell, ph_err)
+                    _sync_emit(f"sync photo failed: {detail}")
+                    sync_block_photo_fail(detail)
 
 
 def create_product(row, fields, catalog_title):
@@ -638,6 +809,12 @@ def create_product(row, fields, catalog_title):
                     product.photo = None
                     product.save(update_fields=["photo"])
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
+                src_key = _normalize_photo_cell_for_compare(cell)
+                Product.objects.filter(pk=product.pk).update(photo_import_source=src_key)
+                product.photo_import_source = src_key
+                product.refresh_from_db(fields=["photo"])
+                if product.photo and product.photo.name:
+                    _prune_other_main_photo_files(art, product.photo.name)
                 _verify_product_photo_saved(product, art)
             else:
                 detail = _photo_fail_detail(art, cell, ph_err)

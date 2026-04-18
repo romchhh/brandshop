@@ -162,7 +162,7 @@ class PromotionalProductList(generics.ListCreateAPIView):
         active=True,
         promotional_price__isnull=False,  # Ensures promotional price is not null
         promotional_price__gt=0                       # Ensures price is greater than zero
-    ).order_by('priority')
+    ).order_by("-priority", "-id")
     serializer_class = ProductSerializer
 
 
@@ -193,7 +193,7 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
         return super().get(request, *args, **kwargs)
 
 class CatalogList(generics.ListAPIView):
-    queryset = Catalog.objects.filter(active=True).order_by('priority')
+    queryset = Catalog.objects.filter(active=True).order_by("-priority", "-id")
     serializer_class = CatalogSerializer
 
 
