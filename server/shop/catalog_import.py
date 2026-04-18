@@ -555,6 +555,16 @@ def update_product(row, fields):
             _sync_emit(f"sync photo try: article={product.article} — посилання з таблиці: «{pv}»")
             ph, ph_err = download_photo(cell)
             if ph is not None:
+                # Видаляємо старий файл лише після успішного завантаження нового,
+                # щоб не накопичувались дублікати з суфіксами (_DnryELM, _ah4e0tR…).
+                # Django додає суфікс якщо файл вже існує — тому явно видаляємо і очищаємо поле.
+                if product.photo and product.photo.name:
+                    try:
+                        product.photo.storage.delete(product.photo.name)
+                    except Exception:
+                        pass
+                    product.photo = None
+                    product.save(update_fields=["photo"])
                 product.photo.save(f"{product.article}_main.jpg", ph, save=True)
                 _verify_product_photo_saved(product, str(product.article))
             else:
@@ -620,6 +630,13 @@ def create_product(row, fields, catalog_title):
             _sync_emit(f"sync photo try: article={art} — посилання з таблиці: «{pv}»")
             photo, ph_err = download_photo(cell)
             if photo is not None:
+                if product.photo and product.photo.name:
+                    try:
+                        product.photo.storage.delete(product.photo.name)
+                    except Exception:
+                        pass
+                    product.photo = None
+                    product.save(update_fields=["photo"])
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
                 _verify_product_photo_saved(product, art)
             else:
