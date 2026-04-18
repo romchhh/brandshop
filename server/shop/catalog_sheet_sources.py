@@ -258,6 +258,19 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
 ]
 
 
+def catalog_titles_in_export_order() -> List[str]:
+    """Порядок назв каталогів як у CATALOG_SHEET_SOURCES (перша поява = позиція у вигрузці)."""
+    out: List[str] = []
+    seen: set[str] = set()
+    for item in CATALOG_SHEET_SOURCES:
+        t = str(item.get("catalog") or "").strip()
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        out.append(t)
+    return out
+
+
 def get_catalog_sheet_sources() -> List[Dict[str, Any]]:
     return CATALOG_SHEET_SOURCES
 
