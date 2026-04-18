@@ -82,21 +82,21 @@ export default function RootLayout({
         {
             key: '1',
             icon: <Image src={pathname === SIDEBAR_PROPS.home.path ? '/home-second-active.svg' : '/home-second.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Головна',
             path: '/',
         },
         {
             key: 'catalog',
             icon: <Image src={pathname === SIDEBAR_PROPS.catalog.path ? '/catalog-active.svg' : '/catalog.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Каталог',
             path: '/catalogs',
         },
         {
             key: 'new_products',
             icon: <Image src={pathname === SIDEBAR_PROPS.new_products.path ? '/star-active.svg' : '/star.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Новинки',
             path: '/new_products',
         },
@@ -111,49 +111,49 @@ export default function RootLayout({
         {
             key: 'views',
             icon: <Image src={pathname === SIDEBAR_PROPS.views.path ? '/eye-active.svg' : '/eye.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Переглянуті товари',
             path: '/views',
         },
         {
             key: '2',
             icon: <Image src={pathname === SIDEBAR_PROPS.basket.path ? '/basket-active.svg' : '/basket.svg'} width={18}
-                         height={19} alt="Icon"/>,
+                         height={19} alt="" unoptimized/>,
             label: 'Кошик',
             path: '/basket',
         },
         {
             key: '3',
             icon: <Image src={pathname === SIDEBAR_PROPS.orders.path ? '/box-active.svg' : '/box.svg'} width={18}
-                         height={19} alt="Icon"/>,
+                         height={19} alt="" unoptimized/>,
             label: 'Статус замовлення',
             path: '/orders',
         },
         {
             key: '4',
             icon: <Image src={pathname === SIDEBAR_PROPS.ordersHistory.path ? '/page-active.svg' : '/page.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Історія замовлення',
             path: '/orders-history',
         },
         {
             key: '5',
             icon: <Image src={pathname === SIDEBAR_PROPS.promotionalOffers.path ? '/badge-active.svg' : '/badge.svg'}
-                         width={18} height={19} alt="Icon"/>,
+                         width={18} height={19} alt="" unoptimized/>,
             label: 'Акційні пропозиції',
             path: '/promotional-offers',
         },
         {
             key: '6',
             icon: <Image src={pathname === SIDEBAR_PROPS.payment.path ? '/coin-active.svg' : '/coin.svg'} width={18}
-                         height={19} alt="Icon"/>,
+                         height={19} alt="" unoptimized/>,
             label: 'Оплата',
             path: '/payment',
         },
         {
             key: '7',
             icon: <Image src={pathname === SIDEBAR_PROPS.delivery.path ? '/truck-active.svg' : '/truck.svg'} width={18}
-                         height={19} alt="Icon"/>,
+                         height={19} alt="" unoptimized/>,
             label: 'Доставка',
             path: '/delivery',
         },

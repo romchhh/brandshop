@@ -17,6 +17,17 @@ export default function imageLoader({
     width: number;
     quality?: number;
 }): string {
+    // Файли з public/ (/, не http) — не ганяти через /_next/image: SVG часто ламаються в Telegram WebView
+    // і зайві 404 для локальних шляхів.
+    if (
+        typeof src === 'string' &&
+        src.startsWith('/') &&
+        !src.startsWith('//') &&
+        !src.startsWith('/_next')
+    ) {
+        return src;
+    }
+
     const upstream = process.env.NEXT_PUBLIC_IMAGE_UPSTREAM?.trim();
     const publicApi = process.env.NEXT_PUBLIC_API_HOST?.trim()
         ? trimBase(process.env.NEXT_PUBLIC_API_HOST as string)

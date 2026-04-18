@@ -44,23 +44,32 @@ export const NavBarHead = ({pathname, showSidebarMenu, setShowSidebarMenu}) => {
     }
 
     return <Header className="nav-bar-head">
-        <Image alt="Icon" className="icon-active" src={showSidebarMenu ? '/description-active.svg' : '/description.svg'}
-               onClick={goToSidebar} width={28} height={24}/>
+        <Image
+            alt=""
+            className="icon-active"
+            src={showSidebarMenu ? "/description-active.svg" : "/description.svg"}
+            onClick={goToSidebar}
+            width={28}
+            height={24}
+            unoptimized
+            style={{ cursor: "pointer", flexShrink: 0 }}
+        />
         <a
             href="/"
             className="brand-logo"
             style={{
-                fontSize: '24px',
-                fontWeight: 'bold',
-                color: '#000',
-                textDecoration: 'none',
-                display: 'flex',
-                alignItems: 'center',
+                fontSize: "24px",
+                fontWeight: "bold",
+                color: "#111111",
+                textDecoration: "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
             }}
         >
-        BRANDSHOP777
+            BRANDSHOP777
         </a>
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+        <div style={{ display: "flex", gap: "12px", alignItems: "center", flexShrink: 0 }}>
             <Image 
                 alt="Telegram"
                 src="/telegram.svg"

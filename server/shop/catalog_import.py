@@ -212,6 +212,37 @@ def _photo_fail_detail(article: str, cell, ph_err: str | None) -> str:
     return f"арт.{article}: з таблиці «{prev}» → {ph_err or 'невідома причина'}"
 
 
+def _verify_product_photo_saved(product: Product, article_label: str) -> None:
+    """Після product.photo.save — перевірка в БД (refresh) і за можливості наявності файлу в storage."""
+    product.refresh_from_db(fields=["photo"])
+    name = (product.photo.name or "").strip()
+    if not name:
+        msg = (
+            f"🔴 sync photo DB: article={article_label} — поле photo в БД порожнє після збереження "
+            f"(перевір MEDIA_ROOT і права запису)"
+        )
+        _sync_logger.error(msg)
+        _sync_emit(msg)
+        return
+    exists: bool | None = None
+    try:
+        exists = product.photo.storage.exists(name)
+    except Exception as exc:
+        _sync_logger.warning("sync photo DB: storage.exists(%s): %s", name, exc)
+    if exists is False:
+        msg = (
+            f"🔴 sync photo DB: article={article_label} — у БД шлях «{name}», "
+            f"але файл не знайдено в storage (клієнт може не отримати фото)"
+        )
+        _sync_logger.error(msg)
+        _sync_emit(msg)
+        return
+    disk = "так" if exists is True else "не перевірено"
+    _sync_emit(
+        f"sync photo ok: article={article_label} — БД: «{name}»; файл у storage: {disk}"
+    )
+
+
 def _drive_file_id(link: str) -> str | None:
     try:
         s = (link or "").strip()
@@ -525,7 +556,7 @@ def update_product(row, fields):
             ph, ph_err = download_photo(cell)
             if ph is not None:
                 product.photo.save(f"{product.article}_main.jpg", ph, save=True)
-                _sync_emit(f"sync photo ok: article={product.article}")
+                _verify_product_photo_saved(product, str(product.article))
             else:
                 detail = _photo_fail_detail(str(product.article), cell, ph_err)
                 _sync_emit(f"sync photo failed: {detail}")
@@ -590,7 +621,7 @@ def create_product(row, fields, catalog_title):
             photo, ph_err = download_photo(cell)
             if photo is not None:
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
-                _sync_emit(f"sync photo ok: article={art}")
+                _verify_product_photo_saved(product, art)
             else:
                 detail = _photo_fail_detail(art, cell, ph_err)
                 _sync_emit(f"sync photo failed: {detail}")
