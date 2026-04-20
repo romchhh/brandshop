@@ -12,8 +12,8 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
     {
         "catalog": "Джинси",
         "link": [
-            "168WgtFHOc6CTuFPccqiLO0nQHlsg8sTErzH5_zuDZBI",
             "11uiTW22t3VJtB2bCxeMA2bFPnImGASjPEGt_FUjScc0",
+            "168WgtFHOc6CTuFPccqiLO0nQHlsg8sTErzH5_zuDZBI",
         ],
         "sheet": 0,
         "title": 6,
@@ -36,7 +36,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 16,
     },
     {
-        "catalog": "Взуття",
+        "catalog": "Взуття весна /осінь",
         "link": ["10z1xV9WBPgktxIjDK6tcdKcUP7WAHrJl_y-id2PGGsg"],
         "sheet": 1,
         "title": 6,
@@ -46,7 +46,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Взуття",
+        "catalog": "Взуття зима",
         "link": ["10z1xV9WBPgktxIjDK6tcdKcUP7WAHrJl_y-id2PGGsg"],
         "sheet": 0,
         "title": 6,
@@ -56,7 +56,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 14,
     },
     {
-        "catalog": "Взуття",
+        "catalog": "Взуття літо",
         "link": ["10z1xV9WBPgktxIjDK6tcdKcUP7WAHrJl_y-id2PGGsg"],
         "sheet": 2,
         "title": 5,
@@ -66,7 +66,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 12,
     },
     {
-        "catalog": "Костюми",
+        "catalog": "Костюми весна /осінь",
         "link": ["1154oTs90EjDFCZ_HlA8TDgZi4VXrrfX5l4rCluTqV3Y"],
         "sheet": 0,
         "title": 6,
@@ -76,7 +76,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 18,
     },
     {
-        "catalog": "Костюми",
+        "catalog": "Костюми зима",
         "link": ["1154oTs90EjDFCZ_HlA8TDgZi4VXrrfX5l4rCluTqV3Y"],
         "sheet": 1,
         "title": 6,
@@ -86,7 +86,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Костюми",
+        "catalog": "Костюми літо",
         "link": ["1154oTs90EjDFCZ_HlA8TDgZi4VXrrfX5l4rCluTqV3Y"],
         "sheet": 2,
         "title": 5,
@@ -196,7 +196,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 13,
     },
     {
-        "catalog": "Сумки та гаманці",
+        "catalog": "Сумки",
         "link": ["1-M9rWFcUneSHvlYxJpmZ81IXVzlRgNHo5Mgn1f9IAHw"],
         "sheet": 0,
         "title": 6,
@@ -206,7 +206,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Сумки та гаманці",
+        "catalog": "Гаманці",
         "link": ["1-M9rWFcUneSHvlYxJpmZ81IXVzlRgNHo5Mgn1f9IAHw"],
         "sheet": 1,
         "title": 6,
@@ -226,7 +226,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 14,
     },
     {
-        "catalog": "Кепки та шапки",
+        "catalog": "Кепки",
         "link": ["10CdIbKCZonLf-Yo8SEx5wp97PrJ7ObXNktr_yV1wAbg"],
         "sheet": 0,
         "title": 6,
@@ -236,7 +236,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 14,
     },
     {
-        "catalog": "Кепки та шапки",
+        "catalog": "Шапки",
         "link": ["10CdIbKCZonLf-Yo8SEx5wp97PrJ7ObXNktr_yV1wAbg"],
         "sheet": 1,
         "title": 6,

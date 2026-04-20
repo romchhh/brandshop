@@ -179,6 +179,18 @@ def _looks_like_bare_drive_file_id(s: str) -> bool:
     return any(c.isalpha() for c in t)
 
 
+def _photo_import_source_label(cell) -> str:
+    """Мітка для Product.photo_import_source (NOT NULL у БД — завжди рядок)."""
+    if cell is None:
+        return ""
+    low = str(cell).strip().lower()
+    if "drive.google" in low:
+        return "drive"
+    if low.startswith("http://") or low.startswith("https://"):
+        return "url"
+    return ""
+
+
 def _photo_cell_usable(cell) -> bool:
     """Таблиці часто дають http, формули без 'https' або лише id — старий 'https' у рядку відсіював усе."""
     if cell is None:
@@ -565,6 +577,7 @@ def update_product(row, fields):
                         pass
                     product.photo = None
                     product.save(update_fields=["photo"])
+                product.photo_import_source = _photo_import_source_label(cell)
                 product.photo.save(f"{product.article}_main.jpg", ph, save=True)
                 _verify_product_photo_saved(product, str(product.article))
             else:
@@ -637,6 +650,7 @@ def create_product(row, fields, catalog_title):
                         pass
                     product.photo = None
                     product.save(update_fields=["photo"])
+                product.photo_import_source = _photo_import_source_label(cell)
                 product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
                 _verify_product_photo_saved(product, art)
             else:

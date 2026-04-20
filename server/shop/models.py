@@ -50,6 +50,13 @@ class Product(models.Model):
     property_title = models.CharField(max_length=255, blank=True, null=True, verbose_name='Назва типу товару')
     active = models.BooleanField(default=True, verbose_name='Активний')
     priority = models.PositiveIntegerField(default=1, verbose_name='Пріоритет')
+    # Джерело фото з синку (таблиця / Drive / URL). Порожній рядок — не NOT NULL у БД.
+    photo_import_source = models.CharField(
+        max_length=64,
+        blank=True,
+        default='',
+        verbose_name='Джерело фото (імпорт)',
+    )
 
     class Meta:
         verbose_name = 'Товар'
@@ -59,6 +66,8 @@ class Product(models.Model):
         if not self.pk:
             last_product= Product.objects.filter(catalog=self.catalog).order_by('-priority').first()
             self.priority = (last_product.priority + 1) if last_product else 1
+        if self.photo_import_source is None:
+            self.photo_import_source = ''
         super(Product, self).save(*args, **kwargs)
 
     def __str__(self):
