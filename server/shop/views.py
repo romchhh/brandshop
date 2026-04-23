@@ -193,7 +193,7 @@ class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
         return super().get(request, *args, **kwargs)
 
 class CatalogList(generics.ListAPIView):
-    queryset = Catalog.objects.filter(active=True).order_by('priority')
+    queryset = Catalog.objects.filter(active=True, products__active=True).distinct().order_by('priority')
     serializer_class = CatalogSerializer
 
 

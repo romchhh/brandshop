@@ -6,7 +6,7 @@ import {Search} from "@/components/shared/Search";
 import {CachedRemoteImage} from "@/components/shared/CachedRemoteImage";
 
 import './index.css'
-import {useEffect, useState} from "react";
+import {ChangeEvent, useEffect, useState} from "react";
 import {emptyText} from "@/components/shared/EmptyText";
 import {useRouter} from "next/navigation";
 import {useDispatch, useSelector} from "react-redux";
@@ -54,17 +54,17 @@ export default function Catalog() {
     const dispatch = useDispatch()
     const user = useSelector((state: RootState) => state.user.user)
 
-    const onSearch = (event) => {
+    const onSearch = (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value.toLowerCase()
         setResultCatalogs(catalogs.filter((catalog) =>
-            catalog.title.toLowerCase().includes(value) || catalog.products.find(product => product.title.toLowerCase().includes(value))
+            catalog.title.toLowerCase().includes(value) || catalog.products.find((product: { title: string }) => product.title.toLowerCase().includes(value))
         ))
     }
     const onClearSearch = () => {
         setResultCatalogs(catalogs)
     }
 
-    const goToCatalogItemPage = (id) => router.push(`/catalog/${id}`)
+    const goToCatalogItemPage = (id: number) => router.push(`/catalog/${id}`)
 
     useMount(() => {
         dispatch(fetchCatalogsRequest());
