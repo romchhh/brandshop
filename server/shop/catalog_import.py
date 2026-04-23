@@ -16,6 +16,7 @@ from pathlib import Path
 
 import requests
 from django.core.files.base import ContentFile
+from django.db.models.functions import Lower, Trim
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -316,6 +317,38 @@ def _get_or_create_catalog(catalog_title: str) -> Catalog:
     return catalog
 
 
+def _normalize_article(raw) -> str:
+    """Єдиний формат артикула для синку (trim + collapse whitespace)."""
+    s = str(raw).replace("\xa0", " ").strip()
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _pick_product_for_article(article: str) -> Product | None:
+    """
+    Повертає "основний" товар для артикула.
+    Якщо дублі вже є — лишаємо найменший pk активним, решту деактивуємо,
+    щоб каталог не показував 5-10 однакових карток.
+    """
+    if not article:
+        return None
+    qs = (
+        Product.objects.annotate(article_norm=Lower(Trim("article")))
+        .filter(article_norm=article.lower())
+        .order_by("pk")
+    )
+    keep = qs.first()
+    if keep is None:
+        return None
+    dup_ids = list(qs.exclude(pk=keep.pk).values_list("pk", flat=True))
+    if dup_ids:
+        Product.objects.filter(pk__in=dup_ids).update(active=False)
+        _sync_emit(
+            f"sync dedupe: article={article} — деактивовано дублікатів: {len(dup_ids)} (залишено id={keep.pk})"
+        )
+    return keep
+
+
 def run_product_sync(log=print):
     """
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
@@ -370,17 +403,20 @@ def run_product_sync(log=print):
             for row in rows:
                 log(f"{ind} / {len(rows)}")
                 ind += 1
-                if fields["article"] >= len(row) or row[fields["article"]] == "":
+                if fields["article"] >= len(row):
                     continue
                 if _is_likely_header_row(row, fields):
                     continue
 
-                art = str(row[fields["article"]]).strip() if fields["article"] < len(row) else "?"
+                art = _normalize_article(row[fields["article"]]) if fields["article"] < len(row) else ""
+                if not art:
+                    continue
                 try:
-                    if not Product.objects.filter(article=row[fields["article"]]).exists():
-                        create_product(row, fields, catalog_title)
+                    existing = _pick_product_for_article(art)
+                    if existing is None:
+                        create_product(row, fields, catalog_title, art)
                     else:
-                        update_product(row, fields, catalog_title)
+                        update_product(existing, row, fields, catalog_title)
                     rows_processed += 1
                     _sync_block_row_ok()
                 except Exception as exc:
@@ -487,8 +523,7 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
     return values
 
 
-def update_product(row, fields, catalog_title):
-    product = Product.objects.get(article=row[fields["article"]])
+def update_product(product: Product, row, fields, catalog_title):
     target_catalog = _get_or_create_catalog(catalog_title)
     if product.catalog_id != target_catalog.id:
         next_priority = (
@@ -608,7 +643,7 @@ def update_product(row, fields, catalog_title):
                 sync_block_photo_fail(detail)
 
 
-def create_product(row, fields, catalog_title):
+def create_product(row, fields, catalog_title, article: str):
     """Створює товар за артикулом/назвою/ціною; фото — за можливості (Drive uc-лінк часто дає HTML замість файлу)."""
     if (fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] == "") or (
         fields.get("count") is not None and fields["count"] < len(row) and row[fields["count"]] == ""
@@ -637,7 +672,7 @@ def create_product(row, fields, catalog_title):
 
     product = Product.objects.create(
         title=str(row[fields["title"]]).strip(),
-        article=str(row[fields["article"]]).strip(),
+        article=article,
         price=price_dec,
         catalog=catalog,
         description=desc,
@@ -646,7 +681,7 @@ def create_product(row, fields, catalog_title):
     if fields["photo"] < len(row):
         cell = row[fields["photo"]]
         raw = str(cell).strip() if cell is not None else ""
-        art = str(row[fields["article"]]).strip()
+        art = article
         if not raw:
             _sync_logger.debug("sync photo skip empty cell: article=%s", art)
         elif raw and not _photo_cell_usable(cell):
@@ -670,7 +705,7 @@ def create_product(row, fields, catalog_title):
                     product.photo = None
                     product.save(update_fields=["photo"])
                 product.photo_import_source = _photo_import_source_label(cell)
-                product.photo.save(f"{row[fields['article']]}_main.jpg", photo, save=True)
+                product.photo.save(f"{article}_main.jpg", photo, save=True)
                 _verify_product_photo_saved(product, art)
             else:
                 detail = _photo_fail_detail(art, cell, ph_err)
