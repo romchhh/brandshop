@@ -309,6 +309,13 @@ def _merge_product_property(product: Product, title: str) -> ProductProperty:
     return prop
 
 
+def _get_or_create_catalog(catalog_title: str) -> Catalog:
+    catalog = Catalog.objects.filter(title=catalog_title).first()
+    if catalog is None:
+        catalog = Catalog.objects.create(title=catalog_title)
+    return catalog
+
+
 def run_product_sync(log=print):
     """
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
@@ -373,7 +380,7 @@ def run_product_sync(log=print):
                     if not Product.objects.filter(article=row[fields["article"]]).exists():
                         create_product(row, fields, catalog_title)
                     else:
-                        update_product(row, fields)
+                        update_product(row, fields, catalog_title)
                     rows_processed += 1
                     _sync_block_row_ok()
                 except Exception as exc:
@@ -480,8 +487,23 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
     return values
 
 
-def update_product(row, fields):
+def update_product(row, fields, catalog_title):
     product = Product.objects.get(article=row[fields["article"]])
+    target_catalog = _get_or_create_catalog(catalog_title)
+    if product.catalog_id != target_catalog.id:
+        next_priority = (
+            Product.objects.filter(catalog=target_catalog)
+            .exclude(pk=product.pk)
+            .order_by("-priority")
+            .values_list("priority", flat=True)
+            .first()
+        )
+        product.catalog = target_catalog
+        product.priority = (next_priority + 1) if next_priority else 1
+        product.save(update_fields=["catalog", "priority"])
+        _sync_emit(
+            f"sync move: article={product.article} — категорія змінена на «{target_catalog.title}»"
+        )
 
     if fields["title"] < len(row) and row[fields["title"]] != "":
         product.active = True
@@ -611,10 +633,7 @@ def create_product(row, fields, catalog_title):
     if fields.get("description") is not None and fields["description"] < len(row):
         desc = str(row[fields["description"]])
 
-    if Catalog.objects.filter(title=catalog_title).exists():
-        catalog = Catalog.objects.get(title=catalog_title)
-    else:
-        catalog = Catalog.objects.create(title=catalog_title)
+    catalog = _get_or_create_catalog(catalog_title)
 
     product = Product.objects.create(
         title=str(row[fields["title"]]).strip(),
