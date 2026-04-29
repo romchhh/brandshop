@@ -18,14 +18,14 @@ logger = logging.getLogger(__name__)
 PERIODIC_TASK_NAME = 'catalog-sync-from-google-sheets'
 SYNC_TASK = 'shop.tasks.sync_products_from_sheets'
 
+# Не пропускати 'migrate' / 'shell': post_migrate викликається під час migrate (argv містить migrate),
+# а docker-entrypoint викликає ensure через manage.py shell — інакше periodic task ніколи не з’являється в БД.
 _SKIP_ARGV: FrozenSet[str] = frozenset(
     {
-        'migrate',
         'makemigrations',
         'test',
         'collectstatic',
         'flush',
-        'shell',
     }
 )
 
@@ -38,7 +38,7 @@ def ensure_catalog_sync_periodic_tasks() -> None:
     except ImportError:
         return
 
-    hours = getattr(settings, 'CATALOG_SYNC_CRON_HOURS', (10, 14, 18, 20))
+    hours = getattr(settings, 'CATALOG_SYNC_CRON_HOURS', (10, 18))
     hour_csv = ','.join(str(h) for h in hours)
     tz = getattr(settings, 'CELERY_TIMEZONE', 'Europe/Kyiv')
 
@@ -63,5 +63,12 @@ def ensure_catalog_sync_periodic_tasks() -> None:
                 'queue': 'default',
             },
         )
+        logger.info(
+            'django-celery-beat: periodic task %r -> %s (crontab hour=%s tz=%s)',
+            PERIODIC_TASK_NAME,
+            SYNC_TASK,
+            hour_csv,
+            tz,
+        )
     except (ProgrammingError, OperationalError) as exc:
-        logger.debug('beat_setup skipped (DB not ready): %s', exc)
+        logger.warning('beat_setup skipped (DB not ready): %s', exc)

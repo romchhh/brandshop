@@ -14,8 +14,9 @@ do
 done
 echo "Database migrations OK."
 
-# Розклад Celery beat у БД (django-celery-beat) — після міграцій, без запитів у AppConfig.ready()
-python manage.py shell -c "from shop.beat_setup import ensure_catalog_sync_periodic_tasks; ensure_catalog_sync_periodic_tasks()" || true
+# Розклад Celery beat у БД (django-celery-beat) — після міграцій.
+# Не через manage.py shell: у beat_setup раніше пропускали argv з "shell", тож запис у БД не створювався.
+python -c "import os; os.environ.setdefault('DJANGO_SETTINGS_MODULE','server.settings'); import django; django.setup(); from shop.beat_setup import ensure_catalog_sync_periodic_tasks; ensure_catalog_sync_periodic_tasks()" || true
 
 # Запускаємо gunicorn, celery worker і celery beat у фоновому режимі
 # GUNICORN_TIMEOUT: інакше 30 с за замовчуванням — довгий імпорт обриває з'єднання (RemoteDisconnected).

@@ -216,9 +216,9 @@ CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 # Час для django-celery-beat crontab і Celery beat (за замовчуванням київський)
 CELERY_TIMEZONE = os.getenv('CELERY_TIMEZONE', 'Europe/Kyiv')
-# Години щоденного імпорту каталогу з Google Таблиць (локальний час CELERY_TIMEZONE)
+# Години щоденного імпорту каталогу з Google Таблиць (локальний час CELERY_TIMEZONE). За замовчуванням: 10:00 і 18:00.
 CATALOG_SYNC_CRON_HOURS = tuple(
     int(x.strip())
-    for x in os.getenv('CATALOG_SYNC_CRON_HOURS', '10,14,18,20').split(',')
+    for x in os.getenv('CATALOG_SYNC_CRON_HOURS', '10,18').split(',')
     if x.strip()
 )
