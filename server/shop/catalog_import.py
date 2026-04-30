@@ -15,6 +15,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import requests
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db.models.functions import Lower, Trim
 from google.oauth2.service_account import Credentials
@@ -76,6 +77,10 @@ _sync_block: dict = {}
 def _sync_import_set_active(value: bool) -> None:
     global _sync_import_active
     _sync_import_active = value
+
+
+def _catalog_sync_tg_verbose() -> bool:
+    return bool(getattr(settings, "CATALOG_SYNC_TG_VERBOSE", False))
 
 
 def _sync_block_reset(
@@ -362,7 +367,8 @@ def run_product_sync(log=print):
     total_photo_fail = 0
     total_photo_unrecognized = 0
 
-    send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
+    if _catalog_sync_tg_verbose():
+        send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
     _sync_import_set_active(True)
     _SyncLogBridge.fn = log
     try:
@@ -390,14 +396,16 @@ def run_product_sync(log=print):
 
             if len(rows) == 0:
                 log("Таблиця порожня або діапазон не знайдено.")
-                send_catalog_sync_message(format_block_empty(catalog_title, spreadsheet_id))
+                if _catalog_sync_tg_verbose():
+                    send_catalog_sync_message(format_block_empty(catalog_title, spreadsheet_id))
                 catalogs_completed += 1
                 continue
 
             _sync_block_reset(catalog_title, spreadsheet_id, range_name, len(rows))
-            send_catalog_sync_message(
-                format_block_start(catalog_title, spreadsheet_id, range_name, len(rows))
-            )
+            if _catalog_sync_tg_verbose():
+                send_catalog_sync_message(
+                    format_block_start(catalog_title, spreadsheet_id, range_name, len(rows))
+                )
 
             ind = 1
             for row in rows:
@@ -446,19 +454,20 @@ def run_product_sync(log=print):
                 )
                 _sync_logger.error(msg)
                 log(msg)
-            send_catalog_sync_message(
-                format_block_done(
-                    catalog_title,
-                    spreadsheet_id,
-                    _sync_block.get("rows_ok", 0),
-                    _sync_block.get("rows_err", 0),
-                    pf,
-                    list(_sync_block.get("err_samples") or []),
-                    photo_cell_unrecognized=pu,
-                    photo_fail_samples=list(_sync_block.get("photo_fail_samples") or []),
-                    photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
+            if _catalog_sync_tg_verbose():
+                send_catalog_sync_message(
+                    format_block_done(
+                        catalog_title,
+                        spreadsheet_id,
+                        _sync_block.get("rows_ok", 0),
+                        _sync_block.get("rows_err", 0),
+                        pf,
+                        list(_sync_block.get("err_samples") or []),
+                        photo_cell_unrecognized=pu,
+                        photo_fail_samples=list(_sync_block.get("photo_fail_samples") or []),
+                        photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
+                    )
                 )
-            )
     finally:
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)

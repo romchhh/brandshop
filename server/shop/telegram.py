@@ -5,8 +5,9 @@ from decimal import Decimal
 import telebot
 from telebot import types
 
-from server.settings import BOT_TOKEN, ADMIN_ID
+from server.settings import BOT_TOKEN
 from shop.models import Order, OrderItem
+from shop.sync_telegram import get_admin_notify_chat_ids
 
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
 
@@ -35,17 +36,39 @@ def _order_items_queryset(order: Order):
     return OrderItem.objects.filter(order=order).select_related('product', 'product_property')
 
 
-def _open_product_photo_file(product):
-    if not product.photo:
-        return None
-    try:
-        field = product.photo
-        path = getattr(field, 'path', None)
+def _product_photo_paths_for_items(items: list[OrderItem]) -> list[str]:
+    """Локальні шляхи до фото товарів (для повторного відкриття на кожного адміна)."""
+    out: list[str] = []
+    for oi in items:
+        p = oi.product
+        if not getattr(p, "photo", None) or not p.photo:
+            continue
+        path = getattr(p.photo, "path", None)
         if path and os.path.isfile(path):
-            return open(path, 'rb')
-        return field.open('rb')
-    except Exception:
-        return None
+            out.append(path)
+    return out
+
+
+def _send_order_photo_albums(chat_id: int, paths: list[str]) -> None:
+    if not paths:
+        return
+    for start in range(0, len(paths), 10):
+        chunk = paths[start : start + 10]
+        handles = []
+        media = []
+        try:
+            for path in chunk:
+                fh = open(path, "rb")
+                handles.append(fh)
+                media.append(types.InputMediaPhoto(fh))
+            if media:
+                bot.send_media_group(chat_id, media)
+        finally:
+            for h in handles:
+                try:
+                    h.close()
+                except Exception:
+                    pass
 
 
 class TelegramAdmin:
@@ -115,35 +138,11 @@ class TelegramAdmin:
             f"{delivery}"
         )
 
-        bot.send_message(ADMIN_ID, text, parse_mode='HTML', reply_markup=keyboard)
-
-        # Фото товарів (Telegram — до 10 медіа в одному альбомі)
-        photo_handles = []
-        media_batch = []
-        try:
-            for oi in items:
-                fh = _open_product_photo_file(oi.product)
-                if not fh:
-                    continue
-                photo_handles.append(fh)
-                media_batch.append(types.InputMediaPhoto(fh))
-                if len(media_batch) >= 10:
-                    bot.send_media_group(ADMIN_ID, media_batch)
-                    for h in photo_handles:
-                        try:
-                            h.close()
-                        except Exception:
-                            pass
-                    photo_handles = []
-                    media_batch = []
-            if media_batch:
-                bot.send_media_group(ADMIN_ID, media_batch)
-        finally:
-            for h in photo_handles:
-                try:
-                    h.close()
-                except Exception:
-                    pass
+        photo_paths = _product_photo_paths_for_items(items)
+        admin_chats = get_admin_notify_chat_ids()
+        for chat_id in admin_chats:
+            bot.send_message(chat_id, text, parse_mode='HTML', reply_markup=keyboard)
+            _send_order_photo_albums(chat_id, photo_paths)
 
     @classmethod
     def create_order_client_message(cls, order: Order):

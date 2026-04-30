@@ -35,6 +35,11 @@ def _admin_chat_ids() -> list[int]:
     return ids
 
 
+def get_admin_notify_chat_ids() -> list[int]:
+    """Унікальні Telegram chat_id для сповіщень адмінам: ADMIN_ID + ADMIN_IDS (через кому)."""
+    return _admin_chat_ids()
+
+
 def _bot_token() -> str | None:
     return (
         (getattr(settings, "BOT_TOKEN", None) or "").strip()

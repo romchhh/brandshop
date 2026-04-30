@@ -222,3 +222,8 @@ CATALOG_SYNC_CRON_HOURS = tuple(
     for x in os.getenv('CATALOG_SYNC_CRON_HOURS', '10,18').split(',')
     if x.strip()
 )
+
+# Telegram адміну під час імпорту з Google Таблиць: за замовчуванням без «дублювання»
+# (не слати старт + кожен блок окремо — лише один підсумок у кінці + notify при помилці читання таблиці).
+# Щоб повернути проміжні повідомлення: CATALOG_SYNC_TG_VERBOSE=1
+CATALOG_SYNC_TG_VERBOSE = _env_bool('CATALOG_SYNC_TG_VERBOSE', False)
