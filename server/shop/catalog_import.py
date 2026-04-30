@@ -30,6 +30,7 @@ from shop.sync_telegram import (
     format_block_empty,
     format_block_start,
     format_sync_summary,
+    format_sync_telegram_finish_notice,
     notify_sheet_error,
     send_catalog_sync_message,
 )
@@ -482,7 +483,15 @@ def run_product_sync(log=print):
         total_photo_fail=total_photo_fail,
         total_photo_unrecognized=total_photo_unrecognized,
     )
-    send_catalog_sync_message(summary)
+    _sync_logger.info("Імпорт каталогу (повний підсумок у лог):\n%s", summary)
+    send_catalog_sync_message(
+        format_sync_telegram_finish_notice(
+            row_errors=row_errors,
+            sheet_errors=sheet_errors,
+            total_photo_fail=total_photo_fail,
+            total_photo_unrecognized=total_photo_unrecognized,
+        )
+    )
     if total_photo_fail > 0 or total_photo_unrecognized > 0:
         msg = (
             f"🔴 КРИТИЧНО — підсумок фото за весь імпорт: не завантажено файл: {total_photo_fail}, "

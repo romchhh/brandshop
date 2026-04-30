@@ -2,7 +2,7 @@
 
 import {Button, Divider, Flex, Input, InputNumber, List, Steps, Select, Spin, Form} from "antd";
 import {emptyText} from "@/components/shared/EmptyText";
-import Image from "next/image";
+import {CachedRemoteImage} from "@/components/shared/CachedRemoteImage";
 import {useMemo, useState} from "react";
 import {useBoolean, useUnmount} from "react-use";
 import {useDispatch, useSelector} from "react-redux";
@@ -138,7 +138,7 @@ export default function OrderSteps({basketItems, totalQuantity, amount, promotio
                         renderItem={({product_property, product}) => (
                             <List.Item>
                                 <Flex gap="large">
-                                    <Image
+                                    <CachedRemoteImage
                                         src={product_property?.photo || product.photo}
                                         width={123}
                                         height={126}

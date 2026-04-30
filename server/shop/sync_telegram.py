@@ -126,6 +126,31 @@ def format_sync_summary(
     return "\n".join(lines)[:TELEGRAM_MAX_MESSAGE]
 
 
+def format_sync_telegram_finish_notice(
+    *,
+    row_errors: list[str],
+    sheet_errors: list[str],
+    total_photo_fail: int = 0,
+    total_photo_unrecognized: int = 0,
+) -> str:
+    """
+    Одне коротке повідомлення адміну в Telegram після імпорту (замість довгого format_sync_summary).
+    """
+    photo_bad = (total_photo_fail or 0) > 0 or (total_photo_unrecognized or 0) > 0
+    if not sheet_errors and not row_errors and not photo_bad:
+        return "✅ Товари були успішно оновлені."
+    bits: list[str] = []
+    if sheet_errors:
+        bits.append(f"помилки таблиць: {len(sheet_errors)}")
+    if row_errors:
+        bits.append(f"помилки рядків: {len(row_errors)}")
+    if photo_bad:
+        bits.append(
+            f"фото (не завантажено / не URL): {int(total_photo_fail)} / {int(total_photo_unrecognized)}"
+        )
+    return "⚠️ Оновлення завершено з проблемами: " + ", ".join(bits) + ". Деталі — у логах сервера."
+
+
 def notify_sheet_error(catalog_title: str, spreadsheet_id: str, exc: BaseException) -> None:
     msg = (
         "❌ Імпорт: не вдалося прочитати Google Таблицю\n"
