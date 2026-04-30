@@ -1,6 +1,6 @@
 # На Docker Engine 24+ legacy-клієнт `docker-compose` 1.29.x часто падає при recreate:
 # KeyError: 'ContainerConfig'. Використовуйте плагін V2: `docker compose up -d` (без дефісу).
-version: '3.8'
+# Поле `version` у файлі не потрібне (Compose V2 його ігнорує і попереджає).
 
 volumes:
   pgdata_gma:
