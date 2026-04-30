@@ -96,7 +96,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Куртки та жилетки",
+        "catalog": "Куртки",
         "link": ["11nhcpsEu3vm-O29MTqaZ18y4VTWgWou2yGAH-Hq2Wa8"],
         "sheet": 0,
         "title": 6,
@@ -106,7 +106,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 16,
     },
     {
-        "catalog": "Куртки та жилетки",
+        "catalog": "Жилетки",
         "link": ["11nhcpsEu3vm-O29MTqaZ18y4VTWgWou2yGAH-Hq2Wa8"],
         "sheet": 1,
         "title": 6,
@@ -136,9 +136,19 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Футболки та поло",
+        "catalog": "Футболки",
         "link": ["10P6KScvz5IanraWPWXS_I-NurJidPxz4KNfIPWSYbKs"],
-        "sheet": [0, 1],
+        "sheet": 0,
+        "title": 6,
+        "price": 9,
+        "article": 11,
+        "size": 12,
+        "photo": 15,
+    },
+    {
+        "catalog": "Поло",
+        "link": ["10P6KScvz5IanraWPWXS_I-NurJidPxz4KNfIPWSYbKs"],
+        "sheet": 1,
         "title": 6,
         "price": 9,
         "article": 11,
@@ -166,7 +176,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 8,
     },
     {
-        "catalog": "Шорти",
+        "catalog": "Шорти джинсові",
         "link": ["11gIogMqgqHtAIvPZvd173HSuuTSdWeGT7Cwshwg8hMA"],
         "sheet": 0,
         "title": 6,
@@ -176,7 +186,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 15,
     },
     {
-        "catalog": "Шорти",
+        "catalog": "Шорти текстильні",
         "link": ["11gIogMqgqHtAIvPZvd173HSuuTSdWeGT7Cwshwg8hMA"],
         "sheet": 1,
         "title": 5,
@@ -186,7 +196,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 14,
     },
     {
-        "catalog": "Шорти",
+        "catalog": "Шорти плавальні",
         "link": ["11gIogMqgqHtAIvPZvd173HSuuTSdWeGT7Cwshwg8hMA"],
         "sheet": 2,
         "title": 5,

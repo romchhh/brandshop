@@ -6,9 +6,13 @@ import {
     fetchViewProductsRequest,
     fetchPromotionalProductsSuccess,
     fetchPromotionalProductsRequest,
+    fetchPromotionalProductsFailure,
 } from './productSlice';
 import axios from 'axios';
 import {API_HOST} from "@/lib/constants";
+import { buildListCacheKey, readApiCache, writeApiCache } from '@/lib/apiCache';
+
+const PROMO_PAGE_SIZE = 20;
 
 function* fetchProductSaga(action) {
     try {
@@ -49,11 +53,37 @@ function* fetchViewProductsSaga(action) {
     }
 }
 
-function* fetchPromotionalProductsSaga() {
+function* fetchPromotionalProductsSaga(action: { payload?: { page?: number; append?: boolean; pageSize?: number } }) {
     try {
-        const response = yield call(axios.get, `${API_HOST}/api/promotional-products`, {headers: {'ngrok-skip-browser-warning': 'test'}}); // Replace with your actual API endpoint
-        yield put(fetchPromotionalProductsSuccess(response.data));
-    } catch (error) {
+        const p = action.payload || {};
+        const page = p.page || 1;
+        const append = !!p.append;
+        const pageSize = p.pageSize || PROMO_PAGE_SIZE;
+        const params = { page, page_size: pageSize };
+        const cacheKey = buildListCacheKey('promotional-products', params);
+        const hit = readApiCache(cacheKey);
+        if (hit && typeof hit === 'object') {
+            yield put(
+                fetchPromotionalProductsSuccess({
+                    ...(hit as object),
+                    append,
+                }),
+            );
+            return;
+        }
+        const response = yield call(axios.get, `${API_HOST}/api/promotional-products`, {
+            headers: { 'ngrok-skip-browser-warning': 'test' },
+            params,
+        });
+        writeApiCache(cacheKey, response.data);
+        yield put(
+            fetchPromotionalProductsSuccess({
+                ...response.data,
+                append,
+            }),
+        );
+    } catch {
+        yield put(fetchPromotionalProductsFailure());
     }
 }
 

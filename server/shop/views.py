@@ -6,10 +6,13 @@ from datetime import timedelta
 from decimal import Decimal
 import time
 
+from django.core.cache import cache
 from django.utils import timezone
 
 from rest_framework import generics
+from rest_framework.pagination import PageNumberPagination
 
+from shop.api_json_cache import api_json_cache_ttl_seconds
 from shop.catalog_import import run_product_sync
 
 from .enums import OrderPaymentStatusEnum, PaymentMethodEnum
@@ -31,6 +34,14 @@ from django.db.models import Sum
 
 from .telegram import TelegramAdmin
 from .wayforpayadmin import secret_key, WayForPayAdmin
+
+
+class PublicProductPagination(PageNumberPagination):
+    """Публічний список товарів (акції тощо) — порціями по 20."""
+
+    page_size = 20
+    page_size_query_param = "page_size"
+    max_page_size = 100
 
 
 class UserViewedProductsView(generics.ListCreateAPIView):
@@ -164,6 +175,22 @@ class PromotionalProductList(generics.ListCreateAPIView):
         promotional_price__gt=0                       # Ensures price is greater than zero
     ).order_by("-updated_at", "-priority", "-id")
     serializer_class = ProductSerializer
+    pagination_class = PublicProductPagination
+
+    def list(self, request, *args, **kwargs):
+        page = str(request.query_params.get("page", "1"))
+        ps = str(
+            request.query_params.get("page_size")
+            or getattr(self.pagination_class, "page_size", 20)
+        )
+        cache_key = f"api:v1:promotional:page:{page}:ps:{ps}"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == 200:
+            cache.set(cache_key, response.data, timeout=api_json_cache_ttl_seconds())
+        return response
 
 
 class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
@@ -202,6 +229,46 @@ class CatalogList(generics.ListAPIView):
 class CatalogDetail(generics.RetrieveAPIView):
     queryset = Catalog.objects.filter(active=True)
     serializer_class = CatalogSerializer
+
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        paginated = str(request.query_params.get("paginated", "")).lower() in ("1", "true", "yes", "on")
+        if not paginated:
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+
+        try:
+            page = max(1, int(request.query_params.get("page", 1) or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = max(1, min(100, int(request.query_params.get("page_size", 20) or 20)))
+        except (TypeError, ValueError):
+            page_size = 20
+
+        cache_key = f"api:v1:catalog:{instance.pk}:pag:{page}:ps:{page_size}"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+
+        qs = instance.products.filter(active=True).order_by("-updated_at", "-priority", "-id")
+        total = qs.count()
+        start = (page - 1) * page_size
+        page_slice = list(qs[start : start + page_size])
+        serializer = self.get_serializer(
+            instance,
+            context={
+                **self.get_serializer_context(),
+                "catalog_products_queryset": page_slice,
+            },
+        )
+        data = dict(serializer.data)
+        data["products_count"] = total
+        data["products_page"] = page
+        data["products_page_size"] = page_size
+        data["products_has_next"] = start + page_size < total
+        cache.set(cache_key, data, timeout=api_json_cache_ttl_seconds())
+        return Response(data)
 
 
 class UserOrdersView(generics.ListCreateAPIView):

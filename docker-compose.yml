@@ -56,6 +56,9 @@ services:
       # Порожньо = server/media у volume. На VPS: /var/www/brandshop/media (той самий шлях у nginx alias).
       DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT:-}
       API_PUBLIC_CACHE_MAX_AGE: ${API_PUBLIC_CACHE_MAX_AGE:-120}
+      # JSON-кеш каталогу/акцій у Redis (DB 2, не змішувати з Celery 0)
+      DJANGO_CACHE_REDIS_URL: ${DJANGO_CACHE_REDIS_URL:-redis://redis:6379/2}
+      API_JSON_CACHE_TTL: ${API_JSON_CACHE_TTL:-180}
     networks:
      - djangonetwork
     depends_on:

@@ -1,12 +1,10 @@
 "use client";
 
 import { Search } from "@/components/shared/Search";
-import { Space, Flex, List, Row, Col, Select, InputNumber } from 'antd';
+import { Space, Flex, List, Row, Col, Select, InputNumber, Button } from 'antd';
 import Image from "next/image";
 import { useDispatch, useSelector } from "react-redux";
-import { useEffect, useState } from "react";
-import { useMount, useUnmount } from "react-use";
-
+import { useCallback, useEffect, useRef, useState } from "react";
 import './index.css'
 import classNames from "classnames";
 
@@ -27,11 +25,13 @@ export default function CatalogItem({ params: { id } }) {
     const [maxPrice, setMaxPrice] = useState(null);
     const [searchValue, setSearchValue] = useState('');
     const isLoading = useSelector((state: RootState) => state.catalog.loading);
+    const catalogLoadingMore = useSelector((state: RootState) => state.catalog.catalogLoadingMore);
+    const catalogProductsHasNext = useSelector((state: RootState) => state.catalog.catalogProductsHasNext);
+    const lastLoadedPageRef = useRef(1);
 
-    // Відновлюємо стан фільтрів при монтуванні
-    useMount(() => {
-        dispatch(fetchCatalogRequest(id));
-        
+    useEffect(() => {
+        lastLoadedPageRef.current = 1;
+        dispatch(fetchCatalogRequest({ id, page: 1, append: false }));
         if (typeof window !== "undefined") {
             const savedFilters = localStorage.getItem(`catalog-${id}-filters`);
             if (savedFilters) {
@@ -42,7 +42,14 @@ export default function CatalogItem({ params: { id } }) {
                 setSearchValue(search);
             }
         }
-    });
+    }, [id, dispatch]);
+
+    const loadMoreCatalog = useCallback(() => {
+        if (!catalogProductsHasNext || catalogLoadingMore || isLoading) return;
+        const next = lastLoadedPageRef.current + 1;
+        lastLoadedPageRef.current = next;
+        dispatch(fetchCatalogRequest({ id, page: next, append: true }));
+    }, [catalogProductsHasNext, catalogLoadingMore, isLoading, dispatch, id]);
 
     // Зберігаємо фільтри при розмонтуванні
     useEffect(() => {
@@ -66,11 +73,10 @@ export default function CatalogItem({ params: { id } }) {
     const onSearch = (event) => {
         const value = event.target.value;
         setSearchValue(value);
+        const list = catalog?.products || [];
         setResultCatalog({
             ...catalog,
-            products: catalog.products.filter((catalog) =>
-                catalog.title.toLowerCase().includes(value.toLowerCase())
-            ),
+            products: list.filter((p) => p.title.toLowerCase().includes(value.toLowerCase())),
         });
     };
 
@@ -197,10 +203,21 @@ export default function CatalogItem({ params: { id } }) {
                         grid={{ gutter: 16, column: 2 }}
                         className={classNames("list-product-item")}
                         dataSource={resultCatalog.products}
-                        renderItem={(item) => (
-                            <ProductPreview catalogTitle={resultCatalog.title} {...item} />
+                        renderItem={(item, index) => (
+                            <ProductPreview
+                                catalogTitle={resultCatalog.title}
+                                {...item}
+                                imagePriority={index < 20}
+                            />
                         )}
                     />
+                    {catalogProductsHasNext && (
+                        <Flex justify="center" style={{ marginTop: 16 }}>
+                            <Button type="default" onClick={loadMoreCatalog} loading={catalogLoadingMore} block>
+                                Показати ще
+                            </Button>
+                        </Flex>
+                    )}
                 </>
             )}
         </Space.Compact>

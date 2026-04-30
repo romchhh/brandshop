@@ -473,6 +473,23 @@ def run_product_sync(log=print):
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)
 
+    try:
+        from shop.promotional_rules import apply_last_active_variant_promotional_prices
+
+        n_promo = apply_last_active_variant_promotional_prices()
+        if n_promo:
+            log(f"Акційні ціни (останній активний розмір): оновлено товарів — {n_promo}")
+    except Exception:
+        _sync_logger.exception("apply_last_active_variant_promotional_prices failed")
+
+    try:
+        from django.core.cache import cache as _api_cache
+
+        _api_cache.clear()
+        log("Кеш API (Django) очищено після імпорту каталогу.")
+    except Exception:
+        _sync_logger.warning("Не вдалося скинути Django cache після імпорту", exc_info=True)
+
     duration = time.monotonic() - t0
     summary = format_sync_summary(
         duration_sec=duration,

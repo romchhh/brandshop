@@ -67,7 +67,11 @@ class CatalogSerializer(serializers.ModelSerializer):
         return _absolute_media_url(obj.photo_banner)
 
     def get_products(self, obj):
-        # Спочатку щойно оновлені/нові (sync), далі за priority — порядок каталогів не змінюється (CatalogList.order_by('priority')).
+        # Пагінований режим: CatalogDetail передає в context готовий список/qs сторінки товарів.
+        override = self.context.get("catalog_products_queryset")
+        if override is not None:
+            return ProductSerializer(override, many=True).data
+        # Спочатку щойно оновлені/нові (sync), далі за priority.
         active_products = obj.products.filter(active=True).order_by("-updated_at", "-priority", "-id")
         return ProductSerializer(active_products, many=True).data
 

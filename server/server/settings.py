@@ -208,6 +208,23 @@ PUBLIC_BASE_URL = (
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = os.getenv('ADMIN_ID')
 
+# Django cache (Redis DB окремо від Celery broker 0 — щоб cache.clear() не чіпав черги).
+_django_cache_url = os.getenv('DJANGO_CACHE_REDIS_URL', '').strip()
+if _django_cache_url:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': _django_cache_url,
+            'KEY_PREFIX': 'shop',
+        }
+    }
+else:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+            'LOCATION': 'brandshop-api',
+        }
+    }
 
 # Celery
 CELERY_BROKER_URL = 'redis://redis:6379/0'

@@ -7,11 +7,19 @@ from django.utils.cache import patch_cache_control
 
 
 def _max_age() -> int:
-    raw = os.getenv("API_PUBLIC_CACHE_MAX_AGE", "120").strip()
+    raw = os.getenv("API_PUBLIC_CACHE_MAX_AGE", "300").strip()
     try:
         return max(0, min(86400, int(raw)))
     except ValueError:
-        return 120
+        return 300
+
+
+def _stale_while_revalidate() -> int:
+    raw = os.getenv("API_PUBLIC_CACHE_STALE_WHILE_REVALIDATE", "600").strip()
+    try:
+        return max(0, min(86400, int(raw)))
+    except ValueError:
+        return 600
 
 
 class ApiCacheControlMiddleware:
@@ -28,5 +36,10 @@ class ApiCacheControlMiddleware:
         if path.startswith("/api/user/"):
             return response
         if path.startswith("/api/catalogs") or path.startswith("/api/promotional-products"):
-            patch_cache_control(response, public=True, max_age=_max_age())
+            patch_cache_control(
+                response,
+                public=True,
+                max_age=_max_age(),
+                stale_while_revalidate=_stale_while_revalidate(),
+            )
         return response

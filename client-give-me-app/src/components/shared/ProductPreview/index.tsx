@@ -16,9 +16,11 @@ export interface ProductProps {
     price: number,
     promotionalPrice: number,
     product_properties: Array<{id: number, title: string}>,
+    /** Перші картки у списку — eager + priority для швидшого LCP */
+    imagePriority?: boolean,
 }
 
-export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_title, photo, price, promotional_price, product_properties}) => {
+export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_title, photo, price, promotional_price, product_properties, imagePriority}) => {
     const router = useRouter();
     const dispatch = useDispatch();
     const favorites = useSelector((state: RootState) => state.favorite.items);
@@ -43,9 +45,10 @@ export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_
                                 <CachedRemoteImage
                                     src={photo}
                                     alt={title}
-                                    width={800}
-                                    height={800}
+                                    width={imagePriority ? 560 : 400}
+                                    height={imagePriority ? 560 : 400}
                                     sizes="(max-width: 768px) 50vw, 200px"
+                                    priority={!!imagePriority}
                                     style={{
                                         width: '100%',
                                         height: '100%',

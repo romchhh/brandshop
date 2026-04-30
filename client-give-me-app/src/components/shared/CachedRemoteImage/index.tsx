@@ -25,11 +25,14 @@ export type CachedRemoteImageProps = Omit<ImageProps, "src"> & {
 /**
  * SVG / data / blob — без оптимізації.
  * Повні http(s) URL (медіа з API) — без /_next/image, щоб міні-ап і прод не ламалися на fetch з боку Next.
+ * За замовчуванням loading="lazy", якщо не передано priority.
  */
 export function CachedRemoteImage({
     src,
     alt = "",
     unoptimized,
+    priority,
+    loading,
     ...rest
 }: CachedRemoteImageProps) {
     if (!src) {
@@ -46,6 +49,7 @@ export function CachedRemoteImage({
             alt={alt}
             unoptimized={unoptimized ?? autoUnopt}
             {...rest}
+            {...(priority ? { priority: true as const } : { loading: (loading ?? "lazy") as "lazy" | "eager" })}
         />
     );
 }
