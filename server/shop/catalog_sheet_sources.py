@@ -23,9 +23,20 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "photo": 16,
     },
     {
-        "catalog": "Світери",
+        "catalog": "Кофти",
         "link": [
             "10MTeCvTcGuqqF4MmqGzH8wKu_f4AnVkHaKCDB-fr-Hw",
+        ],
+        "sheet": 0,
+        "title": 6,
+        "price": 9,
+        "article": 12,
+        "size": 13,
+        "photo": 16,
+    },
+    {
+        "catalog": "Кофти",
+        "link": [
             "12KrTJoXB0UEHJpTr2lf0TkBABO9IwFa0DBWGr_p6bjA",
         ],
         "sheet": 0,
