@@ -279,12 +279,12 @@ class UserOrdersView(generics.ListCreateAPIView):
         #        order.save()
 
         try:
-            TelegramAdmin.create_order_message(order.id, user_id, total_amount, promotion_amount, promocode_amount, order.payment_method)
+            TelegramAdmin.create_order_message(order)
         except:
             pass
 
         try:
-            TelegramAdmin.create_order_client_message(order.id, user_id, total_amount, promotion_amount, promocode_amount, order.payment_method)
+            TelegramAdmin.create_order_client_message(order)
         except:
             pass
 
