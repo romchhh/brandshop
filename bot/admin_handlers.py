@@ -1,4 +1,6 @@
+import html
 import json
+import logging
 import threading
 import time
 from datetime import datetime
@@ -23,6 +25,8 @@ from bot_storage import (
     mark_bot_user_blocked,
 )
 from states import States, get_user_state, reset_user_state, set_user_state
+
+logger = logging.getLogger(__name__)
 
 BROADCAST_PENDING_KEY = "broadcast_pending"
 
@@ -108,16 +112,39 @@ def _get_broadcast_pending(admin_id: int) -> dict | None:
 
 
 def _extract_copied_message_id(sent) -> int | None:
+    """
+    copyMessage у Bot API повертає лише message_id (у pyTelegramBotAPI — types.MessageID).
+    Не покладаємось на один формат: інколи в середовищі може бути dict або повний Message.
+    """
     if sent is None:
+        return None
+    if isinstance(sent, bool):
         return None
     if isinstance(sent, int):
         return sent
+
     mid = getattr(sent, "message_id", None)
     if mid is not None:
-        return int(mid)
+        try:
+            return int(mid)
+        except (TypeError, ValueError):
+            pass
+
     if isinstance(sent, dict):
         v = sent.get("message_id")
-        return int(v) if v is not None else None
+        if v is not None:
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                pass
+        inner = sent.get("result")
+        if isinstance(inner, dict):
+            v = inner.get("message_id")
+            if v is not None:
+                try:
+                    return int(v)
+                except (TypeError, ValueError):
+                    pass
     return None
 
 
@@ -348,20 +375,52 @@ def register_admin_handlers(bot: telebot.TeleBot, api: Api) -> None:
             deliveries = get_broadcast_deliveries(bid)
             ok = 0
             bad = 0
+            first_err: str | None = None
+            if not deliveries:
+                logger.warning(
+                    "broadcast delete #%s: у БД немає пар user_id→message_id — "
+                    "у клієнтів нічого не видаляємо через API (лише запис архіву).",
+                    bid,
+                )
             for uid, mid in deliveries:
                 try:
-                    bot.delete_message(uid, mid)
+                    bot.delete_message(chat_id=uid, message_id=mid)
                     ok += 1
-                except Exception:
+                except Exception as exc:
                     bad += 1
+                    if first_err is None:
+                        first_err = repr(exc)
+                        logger.warning(
+                            "broadcast delete #%s: перша помилка deleteMessage uid=%s mid=%s: %s",
+                            bid,
+                            uid,
+                            mid,
+                            first_err,
+                        )
                 time.sleep(0.04)
             delete_broadcast_record(bid)
+            extra = ""
+            if not deliveries:
+                extra = (
+                    "\n\n⚠️ Для цієї розсилки не було збережено жодного "
+                    "<code>message_id</code> отримувачів — масове видалення в Telegram неможливе. "
+                    "Перевірте, що в контейнері встановлено лише <code>pyTelegramBotAPI</code> "
+                    "(пакет <code>telebot</code> з PyPI не встановлювати — він ламає імпорт)."
+                )
+            elif first_err and ok == 0:
+                err_safe = html.escape(first_err[:200])
+                extra = (
+                    "\n\n⚠️ Telegram відхилив видалення (наприклад, повідомлення старіші за "
+                    "обмеження API або чат недоступний). Перша помилка: "
+                    f"<code>{err_safe}</code>"
+                )
             try:
                 bot.send_message(
                     chat_id,
                     f"🗑 Розсилку №{bid} прибрано з архіву.\n"
                     f"Видалено в Telegram: <b>{ok}</b>\n"
-                    f"Не вдалося (вже видалено / недоступно): <b>{bad}</b>",
+                    f"Не вдалося (вже видалено / недоступно): <b>{bad}</b>"
+                    f"{extra}",
                     parse_mode="HTML",
                     reply_markup=_admin_menu_keyboard(),
                 )
@@ -524,11 +583,24 @@ def register_admin_handlers(bot: telebot.TeleBot, api: Api) -> None:
 
         for rid in recipients:
             try:
-                copied = bot.copy_message(rid, from_chat_id, message_id)
+                copied = bot.copy_message(
+                    chat_id=rid,
+                    from_chat_id=from_chat_id,
+                    message_id=message_id,
+                )
                 mid = _extract_copied_message_id(copied)
                 if mid is not None:
                     add_broadcast_delivery(broadcast_id, rid, mid)
                     stored_ids += 1
+                else:
+                    logger.warning(
+                        "broadcast #%s: copy_message ok але message_id не витягнуто "
+                        "uid=%s type=%s repr=%s",
+                        broadcast_id,
+                        rid,
+                        type(copied).__name__,
+                        repr(copied)[:200],
+                    )
                 sent += 1
             except Exception as e:
                 failed += 1
@@ -547,13 +619,21 @@ def register_admin_handlers(bot: telebot.TeleBot, api: Api) -> None:
         except telebot.apihelper.ApiTelegramException:
             pass
 
+        warn = ""
+        if sent > 0 and stored_ids < sent:
+            warn = (
+                "\n\n⚠️ Збережено менше <code>message_id</code>, ніж успішних copy — "
+                "пізніше «видалити всім» може не охопити всіх. Перевірте залежності бота "
+                "(лише <code>pyTelegramBotAPI</code>)."
+            )
         bot.send_message(
             call.message.chat.id,
             f"✅ Розсилку завершено — запис <b>№{broadcast_id}</b> у архіві.\n"
             f"Успішних відправок (copy): <b>{sent}</b>\n"
             f"Помилок / пропущено: <b>{failed}</b>\n"
             f"Збережено пар user → message_id у БД: <b>{stored_ids}</b> "
-            f"(для видалення розсилки у всіх).",
+            f"(для видалення розсилки у всіх через архів)."
+            f"{warn}",
             parse_mode="HTML",
             reply_markup=_admin_menu_keyboard(),
         )

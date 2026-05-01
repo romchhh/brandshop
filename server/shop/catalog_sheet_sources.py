@@ -25,7 +25,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
     {
         "catalog": "Кофти",
         "link": [
-            "10MTeCvTcGuqqF4MmqGzH8wKu_f4AnVkHaKCDB-fr-Hw",
+            "12KrTJoXB0UEHJpTr2lf0TkBABO9IwFa0DBWGr_p6bjA",
         ],
         "sheet": 0,
         "title": 6,
@@ -37,7 +37,7 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
     {
         "catalog": "Кофти",
         "link": [
-            "12KrTJoXB0UEHJpTr2lf0TkBABO9IwFa0DBWGr_p6bjA",
+            "10MTeCvTcGuqqF4MmqGzH8wKu_f4AnVkHaKCDB-fr-Hw",
         ],
         "sheet": 0,
         "title": 6,
@@ -275,6 +275,17 @@ CATALOG_SHEET_SOURCES: List[Dict[str, Any]] = [
         "article": 3,
         "count": 4,
         "photo": 7,
+    },
+
+    {
+        "catalog": "Окуляри",
+        "link": ["10neHsfdv1jHHBJEPbDGWTOmCEPH9B-ejX12ThItGjlg"],
+        "sheet": 0,
+        "title": 6,
+        "price": 8,
+        "article": 10,
+        "count": 11,
+        "photo": 14,
     },
 ]
 

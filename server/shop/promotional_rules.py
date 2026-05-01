@@ -4,6 +4,9 @@
 Якщо в товару лишився лише один активний розмір/варіант (ProductProperty) —
 ставимо promotional_price: −10% від ціни, далі округлення вниз до кратного 50 грн.
 Якщо активних варіантів 0 або більше 1 — promotional_price скидається (акція лише для «останнього» розміру).
+
+Автоакція не застосовується до аксесуарів (назви каталогів як у імпорті):
+Ремені, Окуляри, Сумки, Гаманці — для них promotional_price завжди скидається.
 """
 from __future__ import annotations
 
@@ -15,6 +18,23 @@ from shop.models import Product
 
 STEP = Decimal("50")
 TEN_PCT = Decimal("0.9")
+
+# Каталоги-аксесуари: знижка «останній розмір» не діє (одяг/взуття — як раніше).
+_CATALOG_TITLES_NO_LAST_VARIANT_PROMO = frozenset(
+    {
+        "Ремені",
+        "Окуляри",
+        "Сумки",
+        "Гаманці",
+    }
+)
+
+
+def catalog_excluded_from_auto_promotional(catalog_title: str) -> bool:
+    """True — не рахуємо promotional_price за правилом останнього розміру."""
+    if not catalog_title:
+        return False
+    return catalog_title.strip() in _CATALOG_TITLES_NO_LAST_VARIANT_PROMO
 
 
 def floor_money_to_step(amount: Decimal, step: Decimal = STEP) -> Decimal:
@@ -61,13 +81,23 @@ def apply_last_active_variant_promotional_prices() -> int:
     Повертає кількість записів, у яких поле змінилося.
     """
     changed = 0
-    qs = Product.objects.filter(active=True).annotate(
-        _ac=Count("product_properties", filter=Q(product_properties__active=True))
+    qs = (
+        Product.objects.filter(active=True)
+        .select_related("catalog")
+        .annotate(
+            _ac=Count("product_properties", filter=Q(product_properties__active=True))
+        )
     )
     batch: list[Product] = []
     for p in qs.iterator(chunk_size=400):
         n = int(p._ac)
-        new_promo = compute_auto_promotional_price(p.price) if n == 1 else None
+        title = getattr(p.catalog, "title", "") or ""
+        if catalog_excluded_from_auto_promotional(title):
+            new_promo = None
+        elif n == 1:
+            new_promo = compute_auto_promotional_price(p.price)
+        else:
+            new_promo = None
         if _promo_equal(p.promotional_price, new_promo):
             continue
         p.promotional_price = new_promo
