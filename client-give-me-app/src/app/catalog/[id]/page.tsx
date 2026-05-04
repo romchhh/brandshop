@@ -4,7 +4,7 @@ import { Search } from "@/components/shared/Search";
 import { Space, Flex, List, Row, Col, Select, InputNumber, Button } from 'antd';
 import Image from "next/image";
 import { useDispatch, useSelector } from "react-redux";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import './index.css'
 import classNames from "classnames";
 
@@ -14,7 +14,7 @@ import { fetchCatalogRequest, resetCatalog } from "@/store/catalogSlice";
 import { RootState } from "@/store/store";
 import { BackButton } from "@/components/shared/BackButton";
 import { Loader } from "@/components/shared/Loader";
-import { numericSizeCatalogs, shoeSizeCatalogs, letterSizeCatalogs, sizesOptions } from "@/config/catalogs";
+import { getCatalogSizeFilterOptions, propertyTitleMatchesSize } from "@/config/catalogs";
 
 export default function CatalogItem({ params: { id } }) {
     const dispatch = useDispatch();
@@ -28,6 +28,11 @@ export default function CatalogItem({ params: { id } }) {
     const catalogLoadingMore = useSelector((state: RootState) => state.catalog.catalogLoadingMore);
     const catalogProductsHasNext = useSelector((state: RootState) => state.catalog.catalogProductsHasNext);
     const lastLoadedPageRef = useRef(1);
+
+    const sizeFilterOptions = useMemo(
+        () => getCatalogSizeFilterOptions(catalog?.title, catalog?.products || []),
+        [catalog?.title, catalog?.products],
+    );
 
     useEffect(() => {
         lastLoadedPageRef.current = 1;
@@ -108,8 +113,8 @@ export default function CatalogItem({ params: { id } }) {
             // Фільтрація за розміром
             if (selectedSize) {
                 filteredProducts = filteredProducts.filter((product) =>
-                    product.product_properties.some(
-                        (property) => property.title === selectedSize
+                    product.product_properties?.some((property) =>
+                        propertyTitleMatchesSize(property.title, selectedSize)
                     )
                 );
             }
@@ -153,34 +158,16 @@ export default function CatalogItem({ params: { id } }) {
                         value={searchValue} 
                     />
                     <Flex justify="center" style={{ margin: '16px 0', gap: '8px', alignItems: 'center' }}>
-                        {shoeSizeCatalogs.includes(String(resultCatalog.id)) && (
+                        {sizeFilterOptions.length > 0 && (
                             <Select
                                 value={selectedSize}
                                 placeholder="Розмір"
-                                options={sizesOptions.shoe}
+                                options={sizeFilterOptions}
                                 onChange={onSizeChange}
                                 allowClear
-                                style={{ width: 120 }}
-                            />
-                        )}
-                        {numericSizeCatalogs.includes(String(resultCatalog.id)) && (
-                            <Select
-                                value={selectedSize}
-                                placeholder="Розмір"
-                                options={sizesOptions.numeric}
-                                onChange={onSizeChange}
-                                allowClear
-                                style={{ width: 120 }}
-                            />
-                        )}
-                        {letterSizeCatalogs.includes(String(resultCatalog.id)) && (
-                            <Select
-                                value={selectedSize}
-                                placeholder="Розмір"
-                                options={sizesOptions.letter}
-                                onChange={onSizeChange}
-                                allowClear
-                                style={{ width: 120 }}
+                                showSearch
+                                optionFilterProp="label"
+                                style={{ width: 140 }}
                             />
                         )}
                         <InputNumber
