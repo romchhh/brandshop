@@ -231,6 +231,10 @@ CELERY_BROKER_URL = 'redis://redis:6379/0'
 CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
 # Celery 6: повтор підключення до брокера на старті (прибирає CPendingDeprecationWarning)
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+# Довгий імпорт з Google Таблиць (секунди); має бути менше GUNICORN_TIMEOUT
+CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '7200'))
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '7000'))
 # Час для django-celery-beat crontab і Celery beat (за замовчуванням київський)
 CELERY_TIMEZONE = os.getenv('CELERY_TIMEZONE', 'Europe/Kyiv')
 # Години щоденного імпорту каталогу з Google Таблиць (локальний час CELERY_TIMEZONE). За замовчуванням: 10:00 і 18:00.

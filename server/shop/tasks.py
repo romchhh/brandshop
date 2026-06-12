@@ -12,11 +12,22 @@ from shop.catalog_sheet_sources import iter_catalog_import_jobs
 from shop.models import Product
 
 
-@shared_task(queue="default")
+@shared_task(
+    queue="default",
+    time_limit=7200,
+    soft_time_limit=7000,
+    ignore_result=True,
+)
 def sync_products_from_sheets():
     """Повний імпорт/оновлення товарів з Google Таблиць (як manage.py update_products)."""
     _runlog = logging.getLogger(__name__)
-    run_product_sync(log=lambda m: _runlog.info(m.rstrip("\n")))
+    _runlog.info("Celery: sync_products_from_sheets started")
+    try:
+        run_product_sync(log=lambda m: _runlog.info(m.rstrip("\n")))
+    except Exception:
+        _runlog.exception("Celery: sync_products_from_sheets failed")
+        raise
+    _runlog.info("Celery: sync_products_from_sheets finished OK")
 
 
 @shared_task(queue="default")

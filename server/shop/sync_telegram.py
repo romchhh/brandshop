@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+import traceback
 import requests
 from django.conf import settings
 
@@ -53,11 +54,15 @@ def send_catalog_sync_message(text: str) -> None:
     """Надсилає текст усім адмінам. Безпечно ігнорує помилки мережі, щоб не ламати імпорт."""
     token = _bot_token()
     if not token:
-        logger.debug("sync_telegram: немає BOT_TOKEN/TELEGRAM_TOKEN — пропускаємо TG")
+        logger.warning(
+            "sync_telegram: немає BOT_TOKEN/TELEGRAM_TOKEN — повідомлення в Telegram не надіслано"
+        )
         return
     chat_ids = _admin_chat_ids()
     if not chat_ids:
-        logger.debug("sync_telegram: немає ADMIN_ID/ADMIN_IDS — пропускаємо TG")
+        logger.warning(
+            "sync_telegram: немає ADMIN_ID/ADMIN_IDS — повідомлення в Telegram не надіслано"
+        )
         return
     chunk = text[:TELEGRAM_MAX_MESSAGE]
     for chat_id in chat_ids:
@@ -133,9 +138,7 @@ def format_sync_telegram_finish_notice(
     total_photo_fail: int = 0,
     total_photo_unrecognized: int = 0,
 ) -> str:
-    """
-    Одне коротке повідомлення адміну в Telegram після імпорту (замість довгого format_sync_summary).
-    """
+    """Короткий підсумок (лише для зворотної сумісності; краще send_sync_finish_message)."""
     photo_bad = (total_photo_fail or 0) > 0 or (total_photo_unrecognized or 0) > 0
     if not sheet_errors and not row_errors and not photo_bad:
         return "✅ Товари були успішно оновлені."
@@ -149,6 +152,59 @@ def format_sync_telegram_finish_notice(
             f"фото (не завантажено / не URL): {int(total_photo_fail)} / {int(total_photo_unrecognized)}"
         )
     return "⚠️ Оновлення завершено з проблемами: " + ", ".join(bits) + ". Деталі — у логах сервера."
+
+
+def send_sync_finish_message(
+    *,
+    duration_sec: float,
+    catalogs_completed: int,
+    total_rows_iterated: int,
+    row_errors: list[str],
+    sheet_errors: list[str],
+    total_photo_fail: int = 0,
+    total_photo_unrecognized: int = 0,
+) -> None:
+    """
+    Успіх — коротке повідомлення; будь-які помилки/фото — повний текст з прикладами в Telegram.
+    """
+    photo_bad = (total_photo_fail or 0) > 0 or (total_photo_unrecognized or 0) > 0
+    if not sheet_errors and not row_errors and not photo_bad:
+        send_catalog_sync_message("✅ Товари були успішно оновлені.")
+        return
+    send_catalog_sync_message(
+        format_sync_summary(
+            duration_sec=duration_sec,
+            catalogs_completed=catalogs_completed,
+            total_rows_iterated=total_rows_iterated,
+            row_errors=row_errors,
+            sheet_errors=sheet_errors,
+            total_photo_fail=total_photo_fail,
+            total_photo_unrecognized=total_photo_unrecognized,
+        )
+    )
+
+
+def notify_sync_fatal_error(
+    exc: BaseException,
+    *,
+    duration_sec: float | None = None,
+    context: str = "імпорт каталогу",
+) -> None:
+    """Критичний збій синхронізації (необроблений виняток) — текст + traceback у Telegram."""
+    tb = traceback.format_exc()
+    lines = [f"❌ КРИТИЧНА помилка: {context}"]
+    if duration_sec is not None:
+        lines.append(f"⏱ До збою: {duration_sec:.1f} с")
+    lines.append(f"Помилка: {exc!s}")
+    if tb and tb.strip() != "NoneType: None\n":
+        lines.append("")
+        lines.append(tb.strip()[-2800:])
+    send_catalog_sync_message("\n".join(lines)[:TELEGRAM_MAX_MESSAGE])
+
+
+def notify_sync_started(*, source: str = "імпорт") -> None:
+    """Коротке підтвердження старту (щоб було видно, що задача реально запустилась)."""
+    send_catalog_sync_message(f"🔄 {source}: оновлення каталогу з Google Таблиць розпочато…")
 
 
 def notify_sheet_error(catalog_title: str, spreadsheet_id: str, exc: BaseException) -> None:

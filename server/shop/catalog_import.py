@@ -30,9 +30,11 @@ from shop.sync_telegram import (
     format_block_empty,
     format_block_start,
     format_sync_summary,
-    format_sync_telegram_finish_notice,
     notify_sheet_error,
+    notify_sync_fatal_error,
+    notify_sync_started,
     send_catalog_sync_message,
+    send_sync_finish_message,
 )
 
 _SERVER_ROOT = Path(__file__).resolve().parent.parent
@@ -368,8 +370,9 @@ def run_product_sync(log=print):
     total_photo_fail = 0
     total_photo_unrecognized = 0
 
+    notify_sync_started(source="Імпорт")
     if _catalog_sync_tg_verbose():
-        send_catalog_sync_message("🔄 Розпочато імпорт товарів з Google Таблиць…")
+        send_catalog_sync_message("🔄 (детальний режим) проміжні повідомлення по блоках увімкнено…")
     _sync_import_set_active(True)
     _SyncLogBridge.fn = log
     try:
@@ -469,6 +472,11 @@ def run_product_sync(log=print):
                         photo_unrecognized_samples=list(_sync_block.get("photo_unrecognized_samples") or []),
                     )
                 )
+    except Exception as exc:
+        duration = time.monotonic() - t0
+        _sync_logger.exception("run_product_sync failed")
+        notify_sync_fatal_error(exc, duration_sec=duration)
+        raise
     finally:
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)
@@ -479,16 +487,18 @@ def run_product_sync(log=print):
         n_promo = apply_last_active_variant_promotional_prices()
         if n_promo:
             log(f"Акційні ціни (останній активний розмір): оновлено товарів — {n_promo}")
-    except Exception:
+    except Exception as exc:
         _sync_logger.exception("apply_last_active_variant_promotional_prices failed")
+        row_errors.append(f"Акційні ціни · {exc!s}")
 
     try:
         from django.core.cache import cache as _api_cache
 
         _api_cache.clear()
         log("Кеш API (Django) очищено після імпорту каталогу.")
-    except Exception:
+    except Exception as exc:
         _sync_logger.warning("Не вдалося скинути Django cache після імпорту", exc_info=True)
+        row_errors.append(f"Скидання кешу API · {exc!s}")
 
     duration = time.monotonic() - t0
     summary = format_sync_summary(
@@ -501,13 +511,14 @@ def run_product_sync(log=print):
         total_photo_unrecognized=total_photo_unrecognized,
     )
     _sync_logger.info("Імпорт каталогу (повний підсумок у лог):\n%s", summary)
-    send_catalog_sync_message(
-        format_sync_telegram_finish_notice(
-            row_errors=row_errors,
-            sheet_errors=sheet_errors,
-            total_photo_fail=total_photo_fail,
-            total_photo_unrecognized=total_photo_unrecognized,
-        )
+    send_sync_finish_message(
+        duration_sec=duration,
+        catalogs_completed=catalogs_completed,
+        total_rows_iterated=rows_processed,
+        row_errors=row_errors,
+        sheet_errors=sheet_errors,
+        total_photo_fail=total_photo_fail,
+        total_photo_unrecognized=total_photo_unrecognized,
     )
     if total_photo_fail > 0 or total_photo_unrecognized > 0:
         msg = (
