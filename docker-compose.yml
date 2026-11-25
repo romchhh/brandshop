@@ -88,7 +88,7 @@ services:
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-1}
       CELERY_LOGLEVEL: ${CELERY_LOGLEVEL:-warning}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
-      SITE_URL: ${SITE_URL:-http://localhost:3001}
+      SITE_URL: ${SITE_URL:-}
       SHOP_FEED_NAME: ${SHOP_FEED_NAME:-BrandShop}
       DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT:-}
       API_PUBLIC_CACHE_MAX_AGE: ${API_PUBLIC_CACHE_MAX_AGE:-300}
@@ -112,7 +112,7 @@ services:
       - ./bot:/app
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
-      SITE_URL: ${SITE_URL:-http://localhost:3001}
+      SITE_URL: ${SITE_URL:-}
       ADMIN_ID: ${ADMIN_ID}
       ADMIN_IDS: ${ADMIN_IDS:-}
       SERVER_URL: http://server:8000
@@ -136,6 +136,7 @@ services:
       NEXT_PUBLIC_IMAGE_UPSTREAM: ${NEXT_PUBLIC_IMAGE_UPSTREAM:-http://server:8000}
       NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
       NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-0}
+      SITE_URL: ${SITE_URL:-}
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=256}
     volumes:
       - ${MEDIA_VOLUME_HOST_PATH:-./server/media}:/app/public/media

@@ -16,8 +16,33 @@ from shop.models import Catalog, Product, ProductProperty
 from shop.promotional_rules import site_selling_price
 
 
-def _shop_site_url() -> str:
-    return (getattr(settings, "SHOP_SITE_URL", "") or getattr(settings, "PUBLIC_BASE_URL", "") or "").rstrip("/")
+def _url_looks_internal(url: str) -> bool:
+    low = (url or "").lower()
+    return (
+        not low
+        or "localhost" in low
+        or "127.0.0.1" in low
+        or low.startswith("http://server")
+        or low.startswith("http://django")
+    )
+
+
+def _shop_site_url(request=None) -> str:
+    """Публічний домен магазину: SITE_URL з .env, інакше X-Forwarded-Host від проксі."""
+    env_shop = (getattr(settings, "SHOP_SITE_URL", "") or "").rstrip("/")
+    env_api = (getattr(settings, "PUBLIC_BASE_URL", "") or "").rstrip("/")
+    if env_shop and not _url_looks_internal(env_shop):
+        return env_shop
+    if env_api and not _url_looks_internal(env_api):
+        return env_api
+
+    if request is not None:
+        xf_host = (request.META.get("HTTP_X_FORWARDED_HOST") or "").split(",")[0].strip()
+        xf_proto = (request.META.get("HTTP_X_FORWARDED_PROTO") or "https").split(",")[0].strip()
+        if xf_host and not _url_looks_internal(f"https://{xf_host}"):
+            return f"{xf_proto}://{xf_host}".rstrip("/")
+
+    return env_shop or env_api
 
 
 def _media_public_url(file_field, request) -> str:
@@ -28,7 +53,7 @@ def _media_public_url(file_field, request) -> str:
         return ""
     if path.startswith("http://") or path.startswith("https://"):
         return path
-    base = _shop_site_url()
+    base = _shop_site_url(request)
     if not base and request is not None:
         return request.build_absolute_uri(path)
     if not base:
@@ -36,8 +61,8 @@ def _media_public_url(file_field, request) -> str:
     return f"{base}{path}" if path.startswith("/") else f"{base}/{path}"
 
 
-def _shop_page_url(path: str) -> str:
-    base = _shop_site_url()
+def _shop_page_url(path: str, request=None) -> str:
+    base = _shop_site_url(request)
     if not base:
         return path
     return f"{base}{path}" if path.startswith("/") else f"{base}/{path}"
@@ -99,13 +124,13 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
         {
             "version": "1.0",
             "generated": _fmt_dt(timezone.now()),
-            "shop-url": _shop_site_url(),
+            "shop-url": _shop_site_url(request),
         },
     )
 
     shop = _sub(root, "shop")
     _sub(shop, "name", getattr(settings, "SHOP_FEED_NAME", "BrandShop"))
-    _sub(shop, "url", _shop_site_url() or "/")
+    _sub(shop, "url", _shop_site_url(request) or "/")
     _sub(shop, "currency", "UAH")
 
     cats_el = _sub(root, "categories")
@@ -116,7 +141,7 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
             id=str(cat.id),
             active="true" if cat.active else "false",
             priority=str(cat.priority),
-            url=_shop_page_url(f"/catalog/{cat.id}"),
+            url=_shop_page_url(f"/catalog/{cat.id}", request),
         )
         _sub(cat_el, "title", cat.title)
         _sub(cat_el, "photo", _media_public_url(cat.photo, request))
@@ -138,7 +163,7 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
             catalog_id=str(catalog.id),
             active="true",
             available="true",
-            url=_shop_page_url(f"/products/{product.id}"),
+            url=_shop_page_url(f"/products/{product.id}", request),
         )
         _sub(prod_el, "title", product.title)
         _sub(prod_el, "article", product.article or "")
