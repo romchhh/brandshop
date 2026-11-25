@@ -1,6 +1,15 @@
 venv
 .venv
-__pycache__
+__pycache__/
+*.py[cod]
 .idea
-logs.txt
 .DS_Store
+logs.txt
+*.log
+*.MP4
+*.mp4
+*.mov
+bot_users.sqlite3
+*.sqlite3
+.env
+.env.*

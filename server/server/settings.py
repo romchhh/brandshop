@@ -59,14 +59,15 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'shop',
+    # beat перед shop — щоб shop.apps міг прибрати Periodic Tasks з UI адмінки після реєстрації
     "django_celery_beat",
+    'shop',
 ]
 
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',
-    'django.middleware.common.CommonMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -139,6 +140,8 @@ DATABASES = {
         # У тому ж docker-compose: POSTGRES_HOST=project_db (ім'я сервісу). Зовнішня БД — IP/хост.
         'HOST': _pg_str('POSTGRES_HOST', 'project_db'),
         'PORT': _pg_str('POSTGRES_PORT', '5432'),
+        # Повторне використання з’єднань — менше навантаження на Postgres
+        'CONN_MAX_AGE': int(os.getenv('DJANGO_DB_CONN_MAX_AGE', '60')),
     }
 }
 
@@ -177,7 +180,7 @@ LANGUAGES = [
 ]
 
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = os.getenv('CELERY_TIMEZONE', 'Europe/Kyiv')
 
 
 # Static files (CSS, JavaScript, Images)
@@ -185,6 +188,15 @@ TIME_ZONE = 'UTC'
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        # Без Manifest — не ламається, якщо collectstatic ще не проганяли
+        "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
@@ -226,12 +238,15 @@ else:
         }
     }
 
-# Celery
-CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
-# Celery 6: повтор підключення до брокера на старті (прибирає CPendingDeprecationWarning)
+# Celery — мінімальне споживання RAM (синк каталогу рідко, concurrency=1 у entrypoint)
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://redis:6379/0')
+# Не зберігаємо результати задач у Redis — менше пам’яті
+CELERY_RESULT_BACKEND = None
+CELERY_TASK_IGNORE_RESULT = True
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BEAT_SCHEDULER = 'django_celery_beat.schedulers:DatabaseScheduler'
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_ACKS_LATE = True
 # Довгий імпорт з Google Таблиць (секунди); має бути менше GUNICORN_TIMEOUT
 CELERY_TASK_TIME_LIMIT = int(os.getenv('CELERY_TASK_TIME_LIMIT', '7200'))
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv('CELERY_TASK_SOFT_TIME_LIMIT', '7000'))

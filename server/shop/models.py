@@ -171,6 +171,29 @@ class Promocode(models.Model):
         return self.value
 
 
+class CatalogSyncState(models.Model):
+    """Один рядок (pk=1): останній запуск імпорту з Google Таблиць."""
+
+    STATUS_IDLE = "idle"
+    STATUS_RUNNING = "running"
+    STATUS_OK = "ok"
+    STATUS_ERROR = "error"
+
+    status = models.CharField(max_length=16, default=STATUS_IDLE)
+    trigger = models.CharField(max_length=16, blank=True, default="")
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    rows_ok = models.PositiveIntegerField(default=0)
+    message = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Стан синхронізації каталогу"
+        verbose_name_plural = "Стан синхронізації каталогу"
+
+    def __str__(self):
+        return f"Синхронізація ({self.status})"
+
+
 class Banner(models.Model):
    photo = models.FileField(upload_to='banner_photos/', verbose_name='Баннер', validators=[validate_image_extension], null=True, blank=True)
 

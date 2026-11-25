@@ -1,28 +1,63 @@
-# На Docker Engine 24+ legacy-клієнт `docker-compose` 1.29.x часто падає при recreate:
-# KeyError: 'ContainerConfig'. Використовуйте плагін V2: `docker compose up -d` (без дефісу).
-# Поле `version` у файлі не потрібне (Compose V2 його ігнорує і попереджає).
+# Compose V2: `docker compose up -d` (без дефісу).
 
 volumes:
   pgdata_gma:
   redis_data:
 
 networks:
-    djangonetwork:
-        driver: bridge
+  djangonetwork:
+    driver: bridge
 
 services:
   project_db:
-    image: postgres:16
+    image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
+      # Менше RAM для невеликого магазину
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=256MB
+      - -c
+      - work_mem=4MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=40
+    # Лише внутрішня мережа — не світити Postgres у світ
+    expose:
+      - "5432"
     volumes:
       - pgdata_gma:/var/lib/postgresql/data
     networks:
-     - djangonetwork
+      - djangonetwork
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 96mb
+      - --maxmemory-policy
+      - allkeys-lru
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - djangonetwork
+    restart: unless-stopped
 
   server:
     build:
@@ -30,7 +65,6 @@ services:
     container_name: django_server
     volumes:
       - ./server:/app
-      # Той самий шлях, що DJANGO_MEDIA_ROOT (за замовчуванням /app/media = server/media).
       - ${MEDIA_VOLUME_HOST_PATH:-./server/media}:${DJANGO_MEDIA_ROOT:-/app/media}
     ports:
       - "8000:8000"
@@ -48,22 +82,22 @@ services:
       BOT_TOKEN: ${TELEGRAM_TOKEN}
       ADMIN_ID: ${ADMIN_ID}
       ADMIN_IDS: ${ADMIN_IDS:-}
-      # Довгий імпорт з Google Таблиць (gunicorn --timeout)
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-3600}
-      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-2}
-      # Публічний URL API для фото товарів у клієнті (без / в кінці), напр. https://api.brandshop.in.ua
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-1}
+      GUNICORN_THREADS: ${GUNICORN_THREADS:-2}
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-1}
+      CELERY_LOGLEVEL: ${CELERY_LOGLEVEL:-warning}
       API_PUBLIC_URL: ${API_PUBLIC_URL:-}
-      # Порожньо = server/media у volume. На VPS: /var/www/brandshop/media (той самий шлях у nginx alias).
       DJANGO_MEDIA_ROOT: ${DJANGO_MEDIA_ROOT:-}
-      API_PUBLIC_CACHE_MAX_AGE: ${API_PUBLIC_CACHE_MAX_AGE:-120}
-      # JSON-кеш каталогу/акцій у Redis (DB 2, не змішувати з Celery 0)
+      API_PUBLIC_CACHE_MAX_AGE: ${API_PUBLIC_CACHE_MAX_AGE:-300}
       DJANGO_CACHE_REDIS_URL: ${DJANGO_CACHE_REDIS_URL:-redis://redis:6379/2}
-      API_JSON_CACHE_TTL: ${API_JSON_CACHE_TTL:-180}
+      API_JSON_CACHE_TTL: ${API_JSON_CACHE_TTL:-300}
     networks:
-     - djangonetwork
+      - djangonetwork
     depends_on:
       - project_db
       - redis
+    restart: unless-stopped
 
   bot:
     build:
@@ -76,13 +110,13 @@ services:
       - ./bot:/app
     environment:
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
-      SITE_URL: 'http://localhost:3002'
+      SITE_URL: ${SITE_URL:-http://localhost:3001}
       ADMIN_ID: ${ADMIN_ID}
       ADMIN_IDS: ${ADMIN_IDS:-}
-      # Ім'я сервісу в цьому файлі — `server` (без _). Хост `django_server` містить `_` і Django відхиляє його за RFC 1034/1035.
       SERVER_URL: http://server:8000
     networks:
       - djangonetwork
+    restart: unless-stopped
 
   client:
     build:
@@ -91,7 +125,7 @@ services:
         NEXT_PUBLIC_API_HOST: ${NEXT_PUBLIC_API_HOST:-http://localhost:8000}
         NEXT_PUBLIC_IMAGE_UPSTREAM: ${NEXT_PUBLIC_IMAGE_UPSTREAM:-http://server:8000}
         NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
-        NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-1}
+        NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-0}
     container_name: react_client
     ports:
       - "3001:3001"
@@ -99,21 +133,12 @@ services:
       NEXT_PUBLIC_API_HOST: ${NEXT_PUBLIC_API_HOST:-http://localhost:8000}
       NEXT_PUBLIC_IMAGE_UPSTREAM: ${NEXT_PUBLIC_IMAGE_UPSTREAM:-http://server:8000}
       NEXT_PUBLIC_MEDIA_SAME_ORIGIN: ${NEXT_PUBLIC_MEDIA_SAME_ORIGIN:-1}
-      NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-1}
+      NEXT_PUBLIC_DEV: ${NEXT_PUBLIC_DEV:-0}
+      NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=256}
     volumes:
-      # Той самий каталог, що MEDIA_ROOT у Django (локально ./server/media). Якщо DJANGO_MEDIA_ROOT=/var/www/... — змонтуйте його сюди замість рядка нижче.
       - ${MEDIA_VOLUME_HOST_PATH:-./server/media}:/app/public/media
     networks:
       - djangonetwork
     depends_on:
       - server
-
-  redis:
-    image: "redis:latest"
-    container_name: redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-     - djangonetwork
+    restart: unless-stopped

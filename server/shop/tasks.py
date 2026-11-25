@@ -23,7 +23,7 @@ def sync_products_from_sheets():
     _runlog = logging.getLogger(__name__)
     _runlog.info("Celery: sync_products_from_sheets started")
     try:
-        run_product_sync(log=lambda m: _runlog.info(m.rstrip("\n")))
+        run_product_sync(log=lambda m: _runlog.info(m.rstrip("\n")), trigger="schedule")
     except Exception:
         _runlog.exception("Celery: sync_products_from_sheets failed")
         raise

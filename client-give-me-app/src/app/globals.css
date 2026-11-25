@@ -1,9 +1,7 @@
-@import url('https://fonts.cdnfonts.com/css/sf-pro-display');
-@import url(https://db.onlinewebfonts.com/c/1dc8ecd8056a5ea7aa7de1db42b5b639?family=Gilroy-Regular);
-
 :root {
-  --bg-color: white;
-  --main-font: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  --bg-color: #ffffff;
+  --main-font: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --app-max-width: 720px;
   max-width: 100%;
 }
 
@@ -13,11 +11,28 @@ body {
   display: flex;
   min-height: 100vh;
   overflow-x: hidden;
+  background: #f4f4f5;
+}
+
+/* Сайт і міні-ап: обмежена колонка по центру на широких екранах */
+.app-shell {
+  width: 100%;
+  max-width: var(--app-max-width);
+  margin: 0 auto;
+  min-height: 100vh;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.04);
 }
 
 .ant-layout {
   padding: 10px;
   background: #fff !important;
+  min-height: 100vh;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
 }
 
 h1 {

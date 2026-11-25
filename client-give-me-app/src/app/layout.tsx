@@ -1,6 +1,5 @@
 "use client";
 
-import Head from 'next/head'
 import {Inter} from "next/font/google";
 import "./globals.css";
 import React, {useEffect, useMemo, useState} from "react";
@@ -21,14 +20,16 @@ import {HeartOutlined, HeartFilled} from '@ant-design/icons';
 
 export const viewport: Viewport = {
     width: 'device-width',
-    height: 'device-height',
     initialScale: 1,
-    maximumScale: 1,
-    minimumScale: 1,
-    userScalable: false,
+    // На сайті можна зумити; у міні-апі Telegram теж ок
+    maximumScale: 5,
 }
 
-const inter = Inter({subsets: ["latin"]});
+const inter = Inter({
+    subsets: ["latin", "cyrillic"],
+    display: "swap",
+    variable: "--font-inter",
+});
 
 type MenuItem = GetProp<MenuProps, 'items'>[number];
 
@@ -170,34 +171,36 @@ export default function RootLayout({
 
 
     return (
-        <html lang="en">
-        <body className={inter.className}>
+        <html lang="uk">
+        <body className={`${inter.variable} ${inter.className}`}>
         <Provider store={store}>
             <SDKProvider>
-                <Layout>
-                    <NavBarHead pathname={pathname} setShowSidebarMenu={setShowSidebarMenu}
-                                showSidebarMenu={showSidebarMenu}></NavBarHead>
-                    <Content className="content">
-                        {children}
-                        <Drawer
-                            placement={'left'}
-                            closable={true}
-                            open={showSidebarMenu}
-                            key={'left'}
-                            className="sidebar"
-                            maskClosable
-                            onClose={() => setShowSidebarMenu(false)}
-                        >
-                            <Menu
-                                selectedKeys={selectedKeys}
-                                items={items}
-                                onSelect={onSidebarItemClick}
-                            />
-                        </Drawer>
-                    </Content>
-                    <NavBar pathname={pathname} setShowSidebarMenu={setShowSidebarMenu}
-                            showSidebarMenu={showSidebarMenu}></NavBar>
-                </Layout>
+                <div className="app-shell">
+                    <Layout>
+                        <NavBarHead pathname={pathname} setShowSidebarMenu={setShowSidebarMenu}
+                                    showSidebarMenu={showSidebarMenu}></NavBarHead>
+                        <Content className="content">
+                            {children}
+                            <Drawer
+                                placement={'left'}
+                                closable={true}
+                                open={showSidebarMenu}
+                                key={'left'}
+                                className="sidebar"
+                                maskClosable
+                                onClose={() => setShowSidebarMenu(false)}
+                            >
+                                <Menu
+                                    selectedKeys={selectedKeys}
+                                    items={items}
+                                    onSelect={onSidebarItemClick}
+                                />
+                            </Drawer>
+                        </Content>
+                        <NavBar pathname={pathname} setShowSidebarMenu={setShowSidebarMenu}
+                                showSidebarMenu={showSidebarMenu}></NavBar>
+                    </Layout>
+                </div>
             </SDKProvider>
         </Provider>
         </body>

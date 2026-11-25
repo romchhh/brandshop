@@ -15,13 +15,33 @@ __pycache__/
 venv/
 .venv/
 
-# Великі медіа в репо не потрібні
+# Django / Celery локальні артефакти
+server/db.sqlite3
+server/*.sqlite3
+server/celerybeat-schedule
+server/celerybeat-schedule.*
+server/staticfiles/
+server/media/
+
+# Великі медіа / локальні файли бота
 bot/*.MP4
 bot/*.mp4
+bot/*.mov
+bot/*.MOV
+bot/bot_users.sqlite3
+bot/*.sqlite3
 
 # Node
 node_modules/
+client-give-me-app/.next/
+client-give-me-app/out/
+client-give-me-app/yarn-error.log*
+client-give-me-app/npm-debug.log*
+# Збірка через yarn — package-lock не потрібен
+client-give-me-app/package-lock.json
 
 # OS / IDE
 .DS_Store
 .idea/
+*.swp
+*~

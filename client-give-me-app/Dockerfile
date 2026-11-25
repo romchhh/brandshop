@@ -1,33 +1,43 @@
-# Base image
-FROM node:18-alpine
+# syntax=docker/dockerfile:1
+# Multi-stage: менший фінальний образ, швидший deploy після build
 
-ARG NEXT_PUBLIC_API_HOST=http://localhost:8000
-# У Docker (docker-compose) — http://server:8000, щоб image optimizer діставав медіа з Django
-ARG NEXT_PUBLIC_IMAGE_UPSTREAM=
-# 1 = фото з /media/... на хості Next (volume server/media → public/media), без префікса API до URL
-ARG NEXT_PUBLIC_MEDIA_SAME_ORIGIN=0
-ARG NEXT_PUBLIC_DEV=0
-ENV NEXT_PUBLIC_API_HOST=$NEXT_PUBLIC_API_HOST
-ENV NEXT_PUBLIC_IMAGE_UPSTREAM=$NEXT_PUBLIC_IMAGE_UPSTREAM
-ENV NEXT_PUBLIC_MEDIA_SAME_ORIGIN=$NEXT_PUBLIC_MEDIA_SAME_ORIGIN
-ENV NEXT_PUBLIC_DEV=$NEXT_PUBLIC_DEV
-
+FROM node:18-alpine AS deps
 WORKDIR /app
-
-# Кеш шару залежностей (менше повторних записів на диск при перезбірці)
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --network-timeout 120000
 
-COPY . .
-RUN mkdir -p public/media
-RUN yarn build
+FROM node:18-alpine AS builder
+WORKDIR /app
 
-# Expose the port for the React dev server
+ARG NEXT_PUBLIC_API_HOST=http://localhost:8000
+ARG NEXT_PUBLIC_IMAGE_UPSTREAM=
+ARG NEXT_PUBLIC_MEDIA_SAME_ORIGIN=0
+ARG NEXT_PUBLIC_DEV=0
+ENV NEXT_PUBLIC_API_HOST=$NEXT_PUBLIC_API_HOST \
+    NEXT_PUBLIC_IMAGE_UPSTREAM=$NEXT_PUBLIC_IMAGE_UPSTREAM \
+    NEXT_PUBLIC_MEDIA_SAME_ORIGIN=$NEXT_PUBLIC_MEDIA_SAME_ORIGIN \
+    NEXT_PUBLIC_DEV=$NEXT_PUBLIC_DEV \
+    NEXT_TELEMETRY_DISABLED=1
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN mkdir -p public/media && yarn build
+
+FROM node:18-alpine AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3001
+
+# standalone + static + public (медіа volume монтується в public/media)
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh && mkdir -p /app/public/media
+
 EXPOSE 3001
 
-RUN chmod +x /app/entrypoint.sh
-
 ENTRYPOINT ["/app/entrypoint.sh"]
-
-# Start the React app
-CMD ["yarn", "start"]
+CMD ["node", "server.js"]

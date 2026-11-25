@@ -1,36 +1,32 @@
 .git
 .gitignore
-**/.gitkeep
-**/.DS_Store
-.next
-.dockerignore
-.circleci
-Dockerfile
-docker-compose.yml
-node_modules
-deploy
-pages/stubs
-venv
-kite
-cypress
-stories
-
-# Sentry
-.sentryclirc
-
-# IDE / локальне (менший build context → менше тимчасового місця)
 .idea
-*.md
-!README.md
-
-# npm при використанні yarn — менше контексту й попереджень
-package-lock.json
-
-# тести й артефакти
+.DS_Store
+.next
+node_modules
 coverage
 .nyc_output
+.turbo
+.cache
+.vercel
+out
+build
 playwright-report
 test-results
 storybook-static
-.turbo
-.cache
+
+# Yarn only — npm lock зайвий у контексті
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.env
+.env.local
+.env.*.local
+*.md
+!README.md
+
+Dockerfile
+.dockerignore
+docker-compose.yml

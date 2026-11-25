@@ -189,15 +189,36 @@ def _looks_like_bare_drive_file_id(s: str) -> bool:
 
 
 def _photo_import_source_label(cell) -> str:
-    """Мітка для Product.photo_import_source (NOT NULL у БД — завжди рядок)."""
-    if cell is None:
+    """Стабільний відбиток посилання (≤64). Якщо не змінилось — фото не качаємо знову."""
+    import hashlib
+
+    raw = "" if cell is None else str(cell).strip()
+    if not raw:
         return ""
-    low = str(cell).strip().lower()
-    if "drive.google" in low:
-        return "drive"
-    if low.startswith("http://") or low.startswith("https://"):
-        return "url"
-    return ""
+    return hashlib.sha1(raw.encode("utf-8", errors="ignore")).hexdigest()[:40]
+
+
+def _photo_unchanged(product, cell) -> bool:
+    """True — файл уже є і посилання в таблиці те саме."""
+    label = _photo_import_source_label(cell)
+    if not label:
+        return False
+    current = (getattr(product, "photo_import_source", "") or "").strip()
+    name = ""
+    try:
+        name = (product.photo.name or "").strip() if product.photo else ""
+    except Exception:
+        name = ""
+    if not name:
+        return False
+    if current == label:
+        return True
+    # Старі мітки drive/url без хеша: один раз фіксуємо відбиток, без повторного завантаження.
+    if current in {"drive", "url"}:
+        product.photo_import_source = label
+        product.save(update_fields=["photo_import_source"])
+        return True
+    return False
 
 
 def _photo_cell_usable(cell) -> bool:
@@ -357,11 +378,16 @@ def _pick_product_for_article(article: str) -> Product | None:
     return keep
 
 
-def run_product_sync(log=print):
+def run_product_sync(log=print, *, trigger: str = "schedule"):
     """
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
     log: callable(str) — для виводу прогресу (наприклад self.stdout.write у команді).
     """
+    from shop.sync_schedule import mark_sync_finished, mark_sync_started
+
+    if not mark_sync_started(trigger):
+        log("Синхронізація вже виконується — повторний запуск пропущено.")
+        return
     t0 = time.monotonic()
     row_errors: list[str] = []
     sheet_errors: list[str] = []
@@ -413,7 +439,8 @@ def run_product_sync(log=print):
 
             ind = 1
             for row in rows:
-                log(f"{ind} / {len(rows)}")
+                if ind == 1 or ind % 200 == 0:
+                    log(f"{catalog_title}: {ind} / {len(rows)}")
                 ind += 1
                 if fields["article"] >= len(row):
                     continue
@@ -476,6 +503,7 @@ def run_product_sync(log=print):
         duration = time.monotonic() - t0
         _sync_logger.exception("run_product_sync failed")
         notify_sync_fatal_error(exc, duration_sec=duration)
+        mark_sync_finished(ok=False, rows_ok=rows_processed, message=str(exc)[:1500])
         raise
     finally:
         _SyncLogBridge.fn = None
@@ -520,6 +548,12 @@ def run_product_sync(log=print):
         total_photo_fail=total_photo_fail,
         total_photo_unrecognized=total_photo_unrecognized,
     )
+    ok = not sheet_errors and not row_errors
+    brief = (
+        f"Рядків: {rows_processed}. Блоків: {catalogs_completed}. "
+        f"Помилки таблиць: {len(sheet_errors)}, рядків: {len(row_errors)}."
+    )
+    mark_sync_finished(ok=ok, rows_ok=rows_processed, message=brief)
     if total_photo_fail > 0 or total_photo_unrecognized > 0:
         msg = (
             f"🔴 КРИТИЧНО — підсумок фото за весь імпорт: не завантажено файл: {total_photo_fail}, "
@@ -537,11 +571,22 @@ def get_catalog_data(SPREADSHEET_ID, RANGE_NAME):
     return data
 
 
+_sheets_service = None
+
+
+def _sheets_api():
+    """Один клієнт Sheets на процес — менше handshake і менше шансів упертись у квоту."""
+    global _sheets_service
+    if _sheets_service is None:
+        creds = Credentials.from_service_account_file(
+            CREDENTIALS_FILE, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
+        )
+        _sheets_service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    return _sheets_service
+
+
 def get_sheet_id_by_index(spreadsheet_id, sheet_index):
-    creds = Credentials.from_service_account_file(
-        CREDENTIALS_FILE, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    )
-    service = build("sheets", "v4", credentials=creds)
+    service = _sheets_api()
 
     spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
     sheets = spreadsheet.get("sheets", [])
@@ -557,12 +602,7 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
 
     full_range = sheet_title if not range_name else f"{sheet_title}!{range_name}"
 
-    creds = Credentials.from_service_account_file(
-        CREDENTIALS_FILE, scopes=["https://www.googleapis.com/auth/spreadsheets.readonly"]
-    )
-    service = build("sheets", "v4", credentials=creds)
-
-    sheet = service.spreadsheets()
+    sheet = _sheets_api().spreadsheets()
     result = sheet.values().get(spreadsheetId=spreadsheet_id, range=full_range).execute()
     values = result.get("values", [])
 
@@ -665,6 +705,8 @@ def update_product(product: Product, row, fields, catalog_title):
             sync_block_photo_cell_unrecognized(
                 f"арт.{product.article}: «{pv}» (потрібен https або посилання Google Drive / id файлу)"
             )
+        elif _photo_unchanged(product, cell):
+            pass
         elif _photo_cell_usable(cell):
             pv = _photo_cell_preview_for_log(cell)
             _sync_emit(f"sync photo try: article={product.article} — посилання з таблиці: «{pv}»")
@@ -858,10 +900,16 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
 
 
 def _content_from_bytes(data: bytes) -> tuple[ContentFile | None, str | None]:
+    from shop.image_optimize import content_file_from_image_bytes
+
     if _bytes_look_like_image(data):
-        return ContentFile(data), None
+        return content_file_from_image_bytes(data), None
     if not _response_looks_like_html(data) and len(data) > 200:
-        return ContentFile(data), None
+        # Схоже на бінарник без magic — все одно пробуємо стиснути через Pillow
+        try:
+            return content_file_from_image_bytes(data), None
+        except Exception:
+            return ContentFile(data), None
     if _response_looks_like_html(data):
         return None, "HTML-сторінка замість файлу"
     return None, "дані не схожі на зображення"

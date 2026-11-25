@@ -1,6 +1,5 @@
 import { call, put, takeLatest } from 'redux-saga/effects';
 import axios from 'axios';
-import { push } from 'react-router-redux';
 
 import {API_HOST} from "@/lib/constants";
 import {

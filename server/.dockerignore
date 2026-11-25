@@ -1,28 +1,31 @@
-*.pyc
-*.pyo
-*.mo
-*.db
-*.css.map
-*.egg-info
-*.sql.gz
-.cache
-.project
+# Build context: менше сміття → швидший docker build
+.git
+.gitignore
 .idea
-.pydevproject
-.idea/workspace.xml
 .DS_Store
-.git/
-.sass-cache
-.vagrant/
-__pycache__
-dist
-docs
+**/__pycache__
+**/*.py[cod]
+*.egg-info
+.venv
+venv
 env
-logs
-src/{{ project_name }}/settings/local.py
-src/node_modules
-web/media
-web/static/CACHE
-stats
+
+# Локальні артефакти (на рантаймі беруться з volume / хоста)
+db.sqlite3
+*.sqlite3
+celerybeat-schedule
+celerybeat-schedule.*
+staticfiles/
+media/
+logs/
+*.log
+
+# Секрети не в образі (монтуються з хоста через ./server:/app)
+credentials.json
+.env
+.env.*
+
 Dockerfile
-staticfiles
+.dockerignore
+README*
+*.md

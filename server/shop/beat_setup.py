@@ -61,8 +61,13 @@ def ensure_catalog_sync_periodic_tasks() -> None:
                 'clocked': None,
                 'enabled': True,
                 'queue': 'default',
+                'one_off': False,
             },
         )
+        # Лише один розклад каталогу. Дублікати й celery.backend_cleanup вимикаємо:
+        # result backend вимкнений, окремий cleanup лише займає beat.
+        PeriodicTask.objects.filter(task=SYNC_TASK).exclude(name=PERIODIC_TASK_NAME).update(enabled=False)
+        PeriodicTask.objects.filter(task='celery.backend_cleanup').update(enabled=False)
         logger.info(
             'django-celery-beat: periodic task %r -> %s (crontab hour=%s tz=%s)',
             PERIODIC_TASK_NAME,

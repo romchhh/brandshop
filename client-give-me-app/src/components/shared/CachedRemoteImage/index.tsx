@@ -4,7 +4,6 @@ import Image, { type ImageProps } from "next/image";
 
 import { resolveMediaSrc } from "@/lib/resolveMediaSrc";
 
-/** Фото з Django (/media/...) як повний http(s) — тягнути напряму в <img>, без /_next/image (у Telegram WebView часто ламається оптимізатор). */
 function isRemoteAbsoluteUrl(src: string): boolean {
     return /^https?:\/\//i.test(src.trim());
 }
@@ -23,9 +22,8 @@ export type CachedRemoteImageProps = Omit<ImageProps, "src"> & {
 };
 
 /**
- * SVG / data / blob — без оптимізації.
- * Повні http(s) URL (медіа з API) — без /_next/image, щоб міні-ап і прод не ламалися на fetch з боку Next.
- * За замовчуванням loading="lazy", якщо не передано priority.
+ * SVG / data / blob / зовнішні absolute URL — без /_next/image.
+ * Відносні /media/... (same-origin volume) — через оптимізатор Next (webp/avif, менший трафік).
  */
 export function CachedRemoteImage({
     src,
@@ -33,23 +31,29 @@ export function CachedRemoteImage({
     unoptimized,
     priority,
     loading,
+    sizes,
     ...rest
 }: CachedRemoteImageProps) {
     if (!src) {
         return null;
     }
     const resolved = resolveMediaSrc(src) ?? src;
+    const sameOriginMedia = resolved.startsWith("/media/");
     const autoUnopt =
-        isNonRasterImageSrc(resolved) ||
-        isRemoteAbsoluteUrl(resolved) ||
-        resolved.startsWith("/media/");
+        unoptimized ??
+        (isNonRasterImageSrc(resolved) ||
+            (isRemoteAbsoluteUrl(resolved) && !sameOriginMedia));
+
     return (
         <Image
             src={resolved}
             alt={alt}
-            unoptimized={unoptimized ?? autoUnopt}
+            unoptimized={autoUnopt}
+            sizes={sizes ?? (sameOriginMedia ? "(max-width: 768px) 50vw, 240px" : undefined)}
             {...rest}
-            {...(priority ? { priority: true as const } : { loading: (loading ?? "lazy") as "lazy" | "eager" })}
+            {...(priority
+                ? { priority: true as const }
+                : { loading: (loading ?? "lazy") as "lazy" | "eager" })}
         />
     );
 }

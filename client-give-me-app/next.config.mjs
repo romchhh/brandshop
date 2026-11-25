@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+    // Менший Docker-образ (див. Dockerfile multi-stage / .next/standalone)
+    output: 'standalone',
     typescript: {
         ignoreBuildErrors: true,
     },
