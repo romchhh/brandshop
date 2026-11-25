@@ -1,6 +1,6 @@
 "use client";
 
-import { Button, Flex, List, Space, Select } from "antd";
+import { Flex, List, Space, Select } from "antd";
 import { Search } from "@/components/shared/Search";
 import { useDispatch, useSelector } from "react-redux";
 import { RootState } from "@/store/store";
@@ -13,6 +13,7 @@ import classNames from "classnames";
 
 import "./index.css";
 import { ProductPreview } from "@/components/shared/ProductPreview";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 
 const groupProduct = (products: any[]) => _.groupBy(products, "catalog_title");
 
@@ -29,6 +30,7 @@ export default function PromotionalOffers() {
     const [groupedProducts, setGroupedProducts] = useState<Record<string, any[]> | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const lastLoadedPageRef = useRef(1);
+    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const productOrderIndex = useMemo(() => {
         const m = new Map<number, number>();
@@ -91,6 +93,12 @@ export default function PromotionalOffers() {
         dispatch(fetchPromotionalProductsRequest({ page: next, append: true } as any));
     }, [promotionalProductsHasNext, promotionalLoadingMore, isLoading, dispatch]);
 
+    useInfiniteScroll(
+        sentinelRef,
+        loadMore,
+        promotionalProductsHasNext && !promotionalLoadingMore && !isLoading,
+    );
+
     return (
         <>
             <Flex justify="center">
@@ -127,10 +135,11 @@ export default function PromotionalOffers() {
                     </div>
                 ))}
             {promotionalProductsHasNext && (
-                <Flex justify="center" style={{ marginTop: 16 }}>
-                    <Button type="default" onClick={loadMore} loading={promotionalLoadingMore} block>
-                        Показати ще
-                    </Button>
+                <div ref={sentinelRef} style={{ height: 1, marginTop: 16 }} aria-hidden />
+            )}
+            {promotionalLoadingMore && (
+                <Flex justify="center" style={{ marginTop: 8 }}>
+                    Завантаження…
                 </Flex>
             )}
         </>

@@ -10,7 +10,7 @@ function ttlMs(): number {
         const n = parseInt(process.env.NEXT_PUBLIC_API_CLIENT_CACHE_TTL_MS, 10);
         if (Number.isFinite(n) && n >= 0) return n;
     }
-    return 120_000;
+    return 300_000;
 }
 
 function safeKey(key: string): string {

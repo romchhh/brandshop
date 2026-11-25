@@ -6,6 +6,8 @@ interface CatalogState {
     loading: boolean;
     catalogLoadingMore: boolean;
     catalogProductsHasNext: boolean;
+    catalogsLoadingMore: boolean;
+    catalogsHasNext: boolean;
     error: string | null;
 }
 
@@ -15,6 +17,8 @@ const initialState: CatalogState = {
     loading: false,
     catalogLoadingMore: false,
     catalogProductsHasNext: false,
+    catalogsLoadingMore: false,
+    catalogsHasNext: false,
     error: null,
 };
 
@@ -22,16 +26,40 @@ const catalogSlice = createSlice({
     name: 'catalog',
     initialState,
     reducers: {
-        fetchCatalogsRequest: (state) => {
-            state.loading = true;
+        fetchCatalogsRequest: (
+            state,
+            action: PayloadAction<{ silent?: boolean; page?: number; append?: boolean } | undefined>,
+        ) => {
+            const append = !!action.payload?.append;
+            const silent = action.payload?.silent;
+            if (append) {
+                state.catalogsLoadingMore = true;
+            } else if (!silent || state.catalogs.length === 0) {
+                state.loading = true;
+            }
             state.error = null;
         },
-        fetchCatalogsSuccess: (state, action: PayloadAction<any[]>) => {
+        fetchCatalogsSuccess: (state, action: PayloadAction<any[] | { results: any[]; append?: boolean; next?: boolean }>) => {
             state.loading = false;
-            state.catalogs = action.payload;
+            state.catalogsLoadingMore = false;
+            const pl = action.payload;
+            if (Array.isArray(pl)) {
+                state.catalogs = pl;
+                state.catalogsHasNext = false;
+                return;
+            }
+            const list = pl.results ?? [];
+            if (pl.append) {
+                const seen = new Set(state.catalogs.map((c) => c.id));
+                state.catalogs = [...state.catalogs, ...list.filter((c) => !seen.has(c.id))];
+            } else {
+                state.catalogs = list;
+            }
+            state.catalogsHasNext = !!pl.next;
         },
         fetchCatalogsFailure: (state, action: PayloadAction<string>) => {
             state.loading = false;
+            state.catalogsLoadingMore = false;
             state.error = action.payload;
         },
         fetchCatalogRequest: (state, action: PayloadAction<

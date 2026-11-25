@@ -20,13 +20,18 @@ from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve
 
-from shop.admin_views import update_products_from_sheets
+from shop.admin_views import catalog_sync_status, update_products_from_sheets
 
 urlpatterns = [
     path(
         "admin/update-products-from-sheets/",
         update_products_from_sheets,
         name="admin_update_products_sheets",
+    ),
+    path(
+        "admin/catalog-sync-status/",
+        catalog_sync_status,
+        name="admin_catalog_sync_status",
     ),
     path('admin/', admin.site.urls),
     path('api/', include('shop.urls')),

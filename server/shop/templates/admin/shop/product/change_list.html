@@ -12,7 +12,11 @@
           {% if catalog_sync.status_label %} · {{ catalog_sync.status_label }}{% endif %}
           {% if catalog_sync.rows %} · рядків {{ catalog_sync.rows }}{% endif %}<br>
           Наступне за розкладом: <b>{{ catalog_sync.next }}</b>
-          {% if catalog_sync.message %}<br><span style="color:#64748b;">{{ catalog_sync.message }}</span>{% endif %}
+          {% if catalog_sync.message %}<br><span id="catalog-sync-label" style="color:#64748b;">{{ catalog_sync.message }}</span>{% else %}<br><span id="catalog-sync-label" style="color:#64748b;"></span>{% endif %}
+        </div>
+        <div id="catalog-sync-track" data-running="{% if catalog_sync.running %}1{% else %}0{% endif %}"
+             style="margin-top:10px;height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden;{% if not catalog_sync.running %}display:none;{% endif %}">
+          <div id="catalog-sync-fill" style="height:100%;width:{{ catalog_sync.percent }}%;background:#0f766e;border-radius:99px;transition:width .35s ease;"></div>
         </div>
       </div>
       <form method="post" action="{% url 'admin_update_products_sheets' %}"
@@ -26,5 +30,31 @@
       </form>
     </div>
   </div>
+  <script>
+    (function () {
+      var track = document.getElementById("catalog-sync-track");
+      if (!track || track.getAttribute("data-running") !== "1") return;
+      var fill = document.getElementById("catalog-sync-fill");
+      var label = document.getElementById("catalog-sync-label");
+      var url = "{% url 'admin_catalog_sync_status' %}";
+      function tick() {
+        fetch(url, {credentials: "same-origin"})
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var pct = data.percent || 0;
+            if (fill) fill.style.width = pct + "%";
+            if (label) label.textContent = data.message || "";
+            track.style.display = "block";
+            if (!data.running) {
+              window.location.reload();
+              return;
+            }
+            window.setTimeout(tick, 1500);
+          })
+          .catch(function () { window.setTimeout(tick, 3000); });
+      }
+      window.setTimeout(tick, 800);
+    })();
+  </script>
   {{ block.super }}
 {% endblock %}

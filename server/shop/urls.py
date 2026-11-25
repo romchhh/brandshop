@@ -1,11 +1,13 @@
 from django.urls import path
 from .views import CatalogList, CatalogDetail, UserViewedProductsView, ProductDetail, PromotionalProductList, \
     UserBasketItemsView, BasketItemUpdateView, UserOrdersView, WayForPayHookView, PromocodeDetail, UserMetaDataView, \
-    BotStatisticsView, BotSyncProductsView, HomeFeedView, ProductSearchView
+    BotStatisticsView, BotSyncProductsView, HomeFeedView, ProductSearchView, NewProductsFeedView, ProductsByIdsView
 
 urlpatterns = [
     path('home/', HomeFeedView.as_view(), name='home-feed'),
     path('products/search/', ProductSearchView.as_view(), name='product-search'),
+    path('new-products/', NewProductsFeedView.as_view(), name='new-products-feed'),
+    path('products/by-ids/', ProductsByIdsView.as_view(), name='products-by-ids'),
     path('catalogs/', CatalogList.as_view(), name='catalog-list'),  # Index endpoint
     path('catalogs/<int:pk>/', CatalogDetail.as_view(), name='catalog-detail'),  # Show endpoint
     path('user/<int:user_id>/viewed-products/', UserViewedProductsView.as_view(), name='user_viewed_products'),

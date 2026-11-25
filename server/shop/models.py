@@ -184,6 +184,8 @@ class CatalogSyncState(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     rows_ok = models.PositiveIntegerField(default=0)
+    progress_done = models.PositiveIntegerField(default=0)
+    progress_total = models.PositiveIntegerField(default=1000)
     message = models.TextField(blank=True, default="")
 
     class Meta:

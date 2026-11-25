@@ -11,13 +11,13 @@ const MAX_VISIBLE_MS = 12000;
 
 function dataStillLoading() {
     const state = store.getState();
-    return (
-        state.catalog.loading ||
-        state.product.loading ||
-        state.basketItem.loading ||
-        state.order.loading ||
-        pageWorkPending()
-    );
+    const catalogBusy = state.catalog.loading && state.catalog.catalogs.length === 0;
+    const productBusy =
+        state.product.loading &&
+        !state.product.product &&
+        !(state.product.promotionalProducts?.length) &&
+        !(state.product.viewProducts?.length);
+    return catalogBusy || productBusy || state.basketItem.loading || state.order.loading || pageWorkPending();
 }
 
 export function PageEnterLoader() {

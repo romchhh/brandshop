@@ -78,10 +78,31 @@ class ProductSerializer(serializers.ModelSerializer):
         return ProductPropertySerializer(active_properties, many=True).data
 
 
+class CatalogSummarySerializer(serializers.ModelSerializer):
+    """Список категорій без товарів — для меню «Каталог» / Redux."""
+
+    photo = serializers.SerializerMethodField()
+    photo_banner = serializers.SerializerMethodField()
+    products_count = serializers.IntegerField(read_only=True, default=0)
+    products = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Catalog
+        fields = ["id", "title", "photo", "photo_banner", "products_count", "products"]
+
+    def get_photo(self, obj):
+        return _absolute_media_url(obj.photo)
+
+    def get_photo_banner(self, obj):
+        return _absolute_media_url(obj.photo_banner)
+
+    def get_products(self, obj):
+        return []
+
+
 class CatalogSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
     photo_banner = serializers.SerializerMethodField()
-    #products = ProductSerializer(many=True, read_only=True)  # Nested serializer to display products in catalog
     products = serializers.SerializerMethodField()
 
     class Meta:
@@ -95,13 +116,13 @@ class CatalogSerializer(serializers.ModelSerializer):
         return _absolute_media_url(obj.photo_banner)
 
     def get_products(self, obj):
-        # Пагінований режим: CatalogDetail передає в context готовий список/qs сторінки товарів.
         override = self.context.get("catalog_products_queryset")
+        card_mode = self.context.get("light_products", False)
+        ser = ProductCardSerializer if card_mode else ProductSerializer
         if override is not None:
-            return ProductSerializer(override, many=True).data
-        # Спочатку щойно оновлені/нові (sync), далі за priority.
+            return ser(override, many=True).data
         active_products = obj.products.filter(active=True).order_by("-updated_at", "-priority", "-id")
-        return ProductSerializer(active_products, many=True).data
+        return ser(active_products, many=True).data
 
 
 class BasketItemSerializer(serializers.ModelSerializer):

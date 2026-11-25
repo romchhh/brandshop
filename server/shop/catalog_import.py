@@ -323,6 +323,16 @@ def _merge_product_property(product: Product, title: str) -> ProductProperty:
     Один запис ProductProperty на пару (product, title).
     Якщо в БД вже є дублікати (стара помилка імпорту) — лишаємо найменший pk, решту видаляємо.
     """
+    prefetched = getattr(product, "_prefetched_objects_cache", None)
+    if prefetched is not None and "product_properties" in prefetched:
+        matches = [p for p in product.product_properties.all() if p.title == title]
+        if matches:
+            prop = min(matches, key=lambda p: p.pk)
+            dup_pks = [p.pk for p in matches if p.pk != prop.pk]
+            if dup_pks:
+                ProductProperty.objects.filter(pk__in=dup_pks).delete()
+            return prop
+
     qs = ProductProperty.objects.filter(title=title, product=product).order_by("pk")
     prop = qs.first()
     if prop is None:
@@ -339,10 +349,60 @@ def _merge_product_property(product: Product, title: str) -> ProductProperty:
     return prop
 
 
+_catalog_cache: dict[str, Catalog] = {}
+_article_cache: dict[str, Product] = {}
+_sheet_titles_cache: dict[str, list[str]] = {}
+_drive_service = None
+
+
+def _clear_sync_runtime_caches() -> None:
+    global _catalog_cache, _article_cache, _sheet_titles_cache
+    _catalog_cache = {}
+    _article_cache = {}
+    _sheet_titles_cache = {}
+
+
+def _warm_sync_runtime_caches() -> None:
+    """Один прохід по БД замість SELECT на кожен рядок таблиці."""
+    global _catalog_cache, _article_cache
+    _catalog_cache = {c.title: c for c in Catalog.objects.all()}
+    _article_cache = {}
+    dup_pks: list[int] = []
+    products = (
+        Product.objects.select_related("catalog")
+        .prefetch_related("product_properties")
+        .order_by("pk")
+    )
+    for product in products:
+        key = _normalize_article(product.article).lower()
+        if not key:
+            continue
+        prev = _article_cache.get(key)
+        if prev is None:
+            _article_cache[key] = product
+        elif product.pk < prev.pk:
+            dup_pks.append(prev.pk)
+            _article_cache[key] = product
+        else:
+            dup_pks.append(product.pk)
+    if dup_pks:
+        Product.objects.filter(pk__in=dup_pks).update(active=False)
+
+
+def _cache_product(product: Product) -> None:
+    key = _normalize_article(product.article).lower()
+    if key:
+        _article_cache[key] = product
+
+
 def _get_or_create_catalog(catalog_title: str) -> Catalog:
+    cached = _catalog_cache.get(catalog_title)
+    if cached is not None:
+        return cached
     catalog = Catalog.objects.filter(title=catalog_title).first()
     if catalog is None:
         catalog = Catalog.objects.create(title=catalog_title)
+    _catalog_cache[catalog_title] = catalog
     return catalog
 
 
@@ -361,9 +421,12 @@ def _pick_product_for_article(article: str) -> Product | None:
     """
     if not article:
         return None
+    key = article.lower()
+    if key in _article_cache:
+        return _article_cache[key]
     qs = (
         Product.objects.annotate(article_norm=Lower(Trim("article")))
-        .filter(article_norm=article.lower())
+        .filter(article_norm=key)
         .order_by("pk")
     )
     keep = qs.first()
@@ -375,6 +438,7 @@ def _pick_product_for_article(article: str) -> Product | None:
         _sync_emit(
             f"sync dedupe: article={article} — деактивовано дублікатів: {len(dup_ids)} (залишено id={keep.pk})"
         )
+    _article_cache[key] = keep
     return keep
 
 
@@ -504,7 +568,7 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
     log: callable(str) — для виводу прогресу (наприклад self.stdout.write у команді).
     """
-    from shop.sync_schedule import mark_sync_finished, mark_sync_started
+    from shop.sync_schedule import mark_sync_finished, mark_sync_started, update_sync_progress
 
     if not mark_sync_started(trigger):
         log("Синхронізація вже виконується — повторний запуск пропущено.")
@@ -521,18 +585,49 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
     unsafe_catalogs: set[str] = set()
 
     notify_sync_started(source="Імпорт")
+    _clear_sync_runtime_caches()
+    try:
+        _warm_sync_runtime_caches()
+        log(f"Кеш артикулів: {len(_article_cache)}, каталогів: {len(_catalog_cache)}")
+    except Exception as exc:
+        _sync_logger.warning("warm sync cache failed", exc_info=True)
+        row_errors.append(f"Прогрів кешу · {exc!s}")
+
     if _catalog_sync_tg_verbose():
         send_catalog_sync_message("🔄 (детальний режим) проміжні повідомлення по блоках увімкнено…")
     _sync_import_set_active(True)
     _SyncLogBridge.fn = log
+    jobs = list(iter_catalog_import_jobs())
+    job_count = max(len(jobs), 1)
+    last_progress_at = 0.0
+
+    def report(fraction: float, label: str, *, force: bool = False) -> None:
+        nonlocal last_progress_at
+        now = time.monotonic()
+        if not force and now - last_progress_at < 1.2:
+            return
+        last_progress_at = now
+        try:
+            update_sync_progress(fraction, label)
+        except Exception:
+            _sync_logger.warning("sync progress update failed", exc_info=True)
+
     try:
-        for catalog_title, spreadsheet_id, fields in iter_catalog_import_jobs():
+        report(0.01, "Читаю таблиці…", force=True)
+        for job_index, (catalog_title, spreadsheet_id, fields) in enumerate(jobs):
             range_name = fields["sheet"]
             if not isinstance(range_name, list):
                 range_name = [range_name]
 
+            job_base = job_index / job_count
+            job_span = 1 / job_count
             log(
                 f"--- Каталог «{catalog_title}» · spreadsheet={spreadsheet_id} · sheet index(es)={range_name} ---"
+            )
+            report(
+                job_base,
+                f"«{catalog_title}» · таблиця {job_index + 1} з {len(jobs)}",
+                force=True,
             )
             try:
                 rows = get_catalog_data(spreadsheet_id, range_name)
@@ -565,9 +660,15 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
                 )
 
             ind = 1
+            row_total = max(len(rows), 1)
             for row in rows:
                 if ind == 1 or ind % 200 == 0:
                     log(f"{catalog_title}: {ind} / {len(rows)}")
+                if ind == 1 or ind % 100 == 0 or ind == len(rows):
+                    report(
+                        job_base + job_span * (min(ind, row_total) / row_total),
+                        f"«{catalog_title}» · {min(ind, len(rows))} / {len(rows)} · таблиця {job_index + 1} з {len(jobs)}",
+                    )
                 ind += 1
                 if fields["article"] >= len(row):
                     continue
@@ -601,6 +702,11 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
                         row_errors.pop(0)
 
             catalogs_completed += 1
+            report(
+                (job_index + 1) / job_count,
+                f"Готово «{catalog_title}» · {job_index + 1} з {len(jobs)}",
+                force=True,
+            )
             log(f"--- Завершено блок: «{catalog_title}» / {spreadsheet_id} ---")
             pf = int(_sync_block.get("photo_fail", 0))
             pu = int(_sync_block.get("photo_cell_unrecognized", 0))
@@ -632,12 +738,14 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
         _sync_logger.exception("run_product_sync failed")
         notify_sync_fatal_error(exc, duration_sec=duration)
         mark_sync_finished(ok=False, rows_ok=rows_processed, message=str(exc)[:1500])
+        _clear_sync_runtime_caches()
         raise
     finally:
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)
 
     removed = hidden = orphans = 0
+    report(0.97, "Прибираю товари і фото, яких уже немає", force=True)
     try:
         removed, hidden, orphans = _prune_products_missing_from_sheets(
             seen_by_catalog, loaded_catalogs, unsafe_catalogs, log
@@ -700,17 +808,41 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
         )
         _sync_logger.error(msg)
         log(msg)
+    _clear_sync_runtime_caches()
 
 
 def get_catalog_data(SPREADSHEET_ID, RANGE_NAME):
-    data = []
+    if not isinstance(RANGE_NAME, list):
+        RANGE_NAME = [RANGE_NAME]
+    titles = _spreadsheet_sheet_titles(SPREADSHEET_ID)
     for i in RANGE_NAME:
-        res = get_google_sheet_data_by_index(SPREADSHEET_ID, i)
-        data += res
+        if i < 0 or i >= len(titles):
+            raise ValueError(f"Індекс аркуша {i} поза межами (0 - {len(titles) - 1}).")
+    api = _sheets_api().spreadsheets().values()
+    if len(RANGE_NAME) == 1:
+        result = api.get(spreadsheetId=SPREADSHEET_ID, range=titles[RANGE_NAME[0]]).execute()
+        return result.get("values", [])
+    ranges = [titles[i] for i in RANGE_NAME]
+    result = api.batchGet(spreadsheetId=SPREADSHEET_ID, ranges=ranges).execute()
+    data: list = []
+    for block in result.get("valueRanges", []):
+        data.extend(block.get("values", []))
     return data
 
 
 _sheets_service = None
+
+
+def _spreadsheet_sheet_titles(spreadsheet_id: str) -> list[str]:
+    """Назви вкладок таблиці — один spreadsheets.get на файл за синхронізацію."""
+    if spreadsheet_id not in _sheet_titles_cache:
+        spreadsheet = (
+            _sheets_api().spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
+        )
+        _sheet_titles_cache[spreadsheet_id] = [
+            s["properties"]["title"] for s in spreadsheet.get("sheets", [])
+        ]
+    return _sheet_titles_cache[spreadsheet_id]
 
 
 def _sheets_api():
@@ -725,15 +857,10 @@ def _sheets_api():
 
 
 def get_sheet_id_by_index(spreadsheet_id, sheet_index):
-    service = _sheets_api()
-
-    spreadsheet = service.spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-    sheets = spreadsheet.get("sheets", [])
-
-    if sheet_index < 0 or sheet_index >= len(sheets):
-        raise ValueError(f"Індекс аркуша {sheet_index} поза межами (0 - {len(sheets) - 1}).")
-
-    return sheets[sheet_index]["properties"]["title"]
+    titles = _spreadsheet_sheet_titles(spreadsheet_id)
+    if sheet_index < 0 or sheet_index >= len(titles):
+        raise ValueError(f"Індекс аркуша {sheet_index} поза межами (0 - {len(titles) - 1}).")
+    return titles[sheet_index]
 
 
 def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None):
@@ -749,6 +876,23 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
 
 
 def update_product(product: Product, row, fields, catalog_title):
+    dirty: set[str] = set()
+
+    def mark(field: str, value) -> None:
+        if getattr(product, field) != value:
+            setattr(product, field, value)
+            dirty.add(field)
+
+    def flush() -> None:
+        if dirty:
+            product.save(update_fields=sorted(dirty))
+            dirty.clear()
+
+    def deactivate_return() -> None:
+        mark("active", False)
+        flush()
+        return
+
     target_catalog = _get_or_create_catalog(catalog_title)
     if product.catalog_id != target_catalog.id:
         next_priority = (
@@ -758,78 +902,71 @@ def update_product(product: Product, row, fields, catalog_title):
             .values_list("priority", flat=True)
             .first()
         )
-        product.catalog = target_catalog
-        product.priority = (next_priority + 1) if next_priority else 1
-        product.save(update_fields=["catalog", "priority"])
+        mark("catalog", target_catalog)
+        mark("priority", (next_priority + 1) if next_priority else 1)
+        flush()
         _sync_emit(
             f"sync move: article={product.article} — категорія змінена на «{target_catalog.title}»"
         )
 
     if fields["title"] < len(row) and row[fields["title"]] != "":
-        product.active = True
-        product.save(update_fields=["active"])
-        product.title = row[fields["title"]]
-        product.save(update_fields=["title"])
+        mark("active", True)
+        mark("title", row[fields["title"]])
     else:
-        product.active = False
-        product.save(update_fields=["active"])
+        mark("active", False)
+        flush()
+        return
 
     if fields["price"] < len(row):
         raw_p = row[fields["price"]]
         if str(raw_p).strip() != "":
             price_dec = _normalize_price(raw_p)
             if price_dec is not None:
-                product.active = True
-                product.save(update_fields=["active"])
-                product.price = price_dec
-                product.save(update_fields=["price"])
+                mark("active", True)
+                mark("price", price_dec)
+            else:
+                return deactivate_return()
         else:
-            product.active = False
-            product.save(update_fields=["active"])
-            return
+            return deactivate_return()
     else:
-        product.active = False
-        product.save(update_fields=["active"])
-        return
+        return deactivate_return()
 
     if (fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] == "") or (
         fields.get("count") is not None and fields["count"] < len(row) and row[fields["count"]] == ""
     ):
-        product.active = False
-        product.save(update_fields=["active"])
-        return
-    elif fields.get("count") is not None and fields["count"] < len(row) and row[fields["count"]] != "" and product.active is False:
-        product.active = True
-        product.save(update_fields=["active"])
-    elif fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] != "" and product.active is False:
-        product.active = True
-        product.save(update_fields=["active"])
+        return deactivate_return()
+    if fields.get("count") is not None and fields["count"] < len(row) and row[fields["count"]] != "":
+        mark("active", True)
+    elif fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] != "":
+        mark("active", True)
 
     if fields.get("size") is not None and fields["size"] < len(row) and row[fields["size"]] != "":
         sizes = _sizes_from_row(row, fields)
 
         if len(sizes) == 0 or (fields["price"] < len(row) and _normalize_price(row[fields["price"]]) is None):
-            product.active = False
-            product.save(update_fields=["active"])
-            return
+            return deactivate_return()
 
-        if len(sizes) != 0:
-            product.product_properties.all().update(active=False)
+        if sizes:
+            want = set(sizes)
+            ProductProperty.objects.filter(product=product).exclude(title__in=want).update(active=False)
             for size in sizes:
                 prop = _merge_product_property(product, size)
-                prop.active = True
-                prop.save(update_fields=["active"])
+                if not prop.active:
+                    prop.active = True
+                    prop.save(update_fields=["active"])
 
     if fields.get("count") is not None and fields["count"] < len(row):
         cnt = str(row[fields["count"]]).strip()
         if cnt:
             prop = _merge_product_property(product, cnt)
-            prop.active = True
-            prop.save(update_fields=["active"])
+            if not prop.active:
+                prop.active = True
+                prop.save(update_fields=["active"])
 
     if fields.get("description") is not None and fields["description"] < len(row):
-        product.description = str(row[fields["description"]])
-        product.save(update_fields=["description"])
+        mark("description", str(row[fields["description"]]))
+
+    flush()
 
     if fields["photo"] < len(row):
         cell = row[fields["photo"]]
@@ -947,6 +1084,8 @@ def create_product(row, fields, catalog_title, article: str):
         if cnt:
             _merge_product_property(product, cnt)
 
+    _cache_product(product)
+
 
 def valid_size(row_sizes):
     data = []
@@ -1000,11 +1139,14 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
         _sync_log_line(f"[sync photo download] Drive API: {msg}")
         return None, msg
     try:
-        creds = Credentials.from_service_account_file(
-            CREDENTIALS_FILE,
-            scopes=["https://www.googleapis.com/auth/drive.readonly"],
-        )
-        service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        global _drive_service
+        if _drive_service is None:
+            creds = Credentials.from_service_account_file(
+                CREDENTIALS_FILE,
+                scopes=["https://www.googleapis.com/auth/drive.readonly"],
+            )
+            _drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        service = _drive_service
         try:
             request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         except TypeError:

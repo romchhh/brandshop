@@ -44,6 +44,6 @@ export default function imageLoader({
                 .replace(/^http:\/\/\[::1\]:8000\b/i, upstream);
         }
     }
-    const q = quality ?? 75;
+    const q = quality ?? 68;
     return `/_next/image?url=${encodeURIComponent(fetchUrl)}&w=${width}&q=${q}`;
 }

@@ -68,9 +68,23 @@ def mark_sync_started(trigger: str) -> bool:
         obj.started_at = timezone.now()
         obj.finished_at = None
         obj.rows_ok = 0
+        obj.progress_done = 0
+        obj.progress_total = 1000
         obj.message = "Виконується…"
         obj.save()
     return True
+
+
+def update_sync_progress(fraction: float, label: str) -> None:
+    """0..1. Пише лише поки статус running, щоб не затерти підсумок після фінішу."""
+    from shop.models import CatalogSyncState
+
+    done = max(0, min(1000, int(float(fraction) * 1000)))
+    CatalogSyncState.objects.filter(pk=1, status=CatalogSyncState.STATUS_RUNNING).update(
+        progress_done=done,
+        progress_total=1000,
+        message=(label or "")[:500],
+    )
 
 
 def mark_sync_finished(*, ok: bool, rows_ok: int, message: str) -> None:
@@ -80,5 +94,7 @@ def mark_sync_finished(*, ok: bool, rows_ok: int, message: str) -> None:
     obj.status = CatalogSyncState.STATUS_OK if ok else CatalogSyncState.STATUS_ERROR
     obj.finished_at = timezone.now()
     obj.rows_ok = rows_ok
+    obj.progress_done = 1000
+    obj.progress_total = 1000
     obj.message = (message or "")[:4000]
     obj.save()

@@ -3,10 +3,12 @@ import threading
 
 from django.contrib import messages
 from django.contrib.admin.views.decorators import staff_member_required
+from django.http import JsonResponse
 from django.shortcuts import redirect
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_GET, require_POST
 
 from shop.catalog_import import run_product_sync
+from shop.models import CatalogSyncState
 from shop.sync_schedule import get_sync_state
 
 logger = logging.getLogger(__name__)
@@ -49,6 +51,28 @@ def update_products_from_sheets(request):
     threading.Thread(target=_run_in_background, name="catalog-sync-manual", daemon=True).start()
     messages.success(
         request,
-        "Оновлення запущено. Сторінку можна закрити — статус «останнє / наступне» оновиться тут сам.",
+        "Оновлення запущено. Прогрес видно на цій сторінці.",
     )
     return redirect("admin:shop_product_changelist")
+
+
+@staff_member_required
+@require_GET
+def catalog_sync_status(request):
+    """JSON для смуги прогресу на списку товарів."""
+    if not _can_sync_products(request.user):
+        return JsonResponse({"detail": "forbidden"}, status=403)
+    state = get_sync_state()
+    total = state.progress_total or 1000
+    done = state.progress_done or 0
+    return JsonResponse(
+        {
+            "running": state.status == CatalogSyncState.STATUS_RUNNING,
+            "status": state.status,
+            "done": done,
+            "total": total,
+            "percent": int(done * 100 / total) if total else 0,
+            "message": (state.message or "")[:240],
+            "rows": state.rows_ok or 0,
+        }
+    )

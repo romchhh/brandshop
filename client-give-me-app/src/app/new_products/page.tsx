@@ -1,79 +1,117 @@
 "use client";
 
-import {Flex, List} from "antd";
-import {Search} from "@/components/shared/Search";
-import {useDispatch, useSelector} from "react-redux";
-import {RootState} from "@/store/store";
-import {useEffect, useState} from "react";
-import {useMount} from "react-use";
-import {fetchCatalogsRequest} from "@/store/catalogSlice";
-import _ from 'lodash';
-import {emptyText} from "@/components/shared/EmptyText";
-import {ProductPreview} from "@/components/shared/ProductPreview";
+import { Flex, List } from "antd";
+import { Search } from "@/components/shared/Search";
+import { useCallback, useEffect, useRef, useState } from "react";
+import axios from "axios";
+import _ from "lodash";
+import { emptyText } from "@/components/shared/EmptyText";
+import { ProductPreview } from "@/components/shared/ProductPreview";
 import classNames from "classnames";
+import { API_HOST, LIST_PAGE_SIZE } from "@/lib/constants";
+import { buildListCacheKey, readApiCache, writeApiCache } from "@/lib/apiCache";
+import { beginPageWork } from "@/lib/pageWork";
+import { Loader } from "@/components/shared/Loader";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 
-const groupProduct = (products) => _.groupBy(products, 'catalog_title')
+const groupProduct = (products: any[]) => _.groupBy(products, "catalog_title");
 
-const getNewProducts = (catalogs) => {
-    const newProducts = [];
-    catalogs.forEach(catalog => {
-        const topProducts = catalog.products.slice(0, 4).map(product => ({
-            ...product,
-            catalog_title: catalog.title
-        }));
-        newProducts.push(...topProducts);
-    });
-    return newProducts;
+function parsePageBody(data: unknown): { chunk: any[]; next: boolean } {
+    if (Array.isArray(data)) {
+        return { chunk: data, next: false };
+    }
+    const body = data as { results?: any[]; next?: boolean };
+    return { chunk: body.results ?? [], next: !!body.next };
 }
 
 export default function NewProducts() {
-    const dispatch = useDispatch()
-    const catalogs = useSelector((state: RootState) => state.catalog.catalogs);
-    const [groupedProducts, setGroupedProducts] = useState(null)
+    const [items, setItems] = useState<any[]>([]);
+    const [searchQuery, setSearchQuery] = useState("");
+    const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasNext, setHasNext] = useState(false);
+    const pageRef = useRef(1);
+    const sentinelRef = useRef<HTMLDivElement>(null);
 
-    const onSearch = (event) => {
-        const value = event.target.value
-        const newProducts = getNewProducts(catalogs);
-        setGroupedProducts(groupProduct(newProducts.filter((product) =>
-            product.title.toLowerCase().includes(value.toLowerCase())
-        )))
-    }
-
-    const onClearSearch = () => {
-        const newProducts = getNewProducts(catalogs);
-        setGroupedProducts(groupProduct(newProducts))
-    }
-
-    useMount(() => {
-        dispatch(fetchCatalogsRequest());
-    });
+    const fetchPage = useCallback(async (page: number, append: boolean) => {
+        const params = { page, page_size: LIST_PAGE_SIZE };
+        const cacheKey = buildListCacheKey("new-products", params);
+        const hit = readApiCache(cacheKey);
+        let data = hit;
+        if (!data) {
+            const res = await axios.get(`${API_HOST}/api/new-products/`, {
+                headers: { "ngrok-skip-browser-warning": "test" },
+                params,
+            });
+            data = res.data;
+            writeApiCache(cacheKey, data);
+        }
+        const { chunk, next } = parsePageBody(data);
+        setItems((prev) => (append ? [...prev, ...chunk] : chunk));
+        setHasNext(next);
+        pageRef.current = page;
+    }, []);
 
     useEffect(() => {
-        const newProducts = getNewProducts(catalogs);
-        setGroupedProducts(groupProduct(newProducts))
-    }, [catalogs]);
+        const finish = beginPageWork();
+        fetchPage(1, false)
+            .catch(() => {
+                setItems([]);
+                setHasNext(false);
+            })
+            .finally(() => {
+                setLoading(false);
+                finish();
+            });
+    }, [fetchPage]);
 
-    return <>
-        <Flex justify="center">
-            <h1>Новинки</h1>
-        </Flex>
-        <Search placeholder="Пошук товару" handler={onSearch} onClear={onClearSearch}/>
-        {
-            groupedProducts && Object.entries(groupedProducts).map(([catalogTitle, groupProducts]) => (
+    const loadMore = useCallback(() => {
+        if (!hasNext || loadingMore || loading) return;
+        setLoadingMore(true);
+        fetchPage(pageRef.current + 1, true).finally(() => setLoadingMore(false));
+    }, [hasNext, loadingMore, loading, fetchPage]);
+
+    useInfiniteScroll(sentinelRef, loadMore, hasNext && !loadingMore && !loading);
+
+    const filtered = searchQuery.trim()
+        ? items.filter((p) => p.title?.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+        : items;
+    const groupedProducts = groupProduct(filtered);
+
+    const onSearch = (event) => setSearchQuery(event.target.value);
+    const onClearSearch = () => setSearchQuery("");
+
+    if (loading && items.length === 0) {
+        return <Loader />;
+    }
+
+    return (
+        <>
+            <Flex justify="center">
+                <h1>Новинки</h1>
+            </Flex>
+            <Search placeholder="Пошук товару" handler={onSearch} onClear={onClearSearch} />
+            {Object.entries(groupedProducts).map(([catalogTitle, groupProducts]) => (
                 <div key={catalogTitle}>
-                    <h2 style={{margin: '24px 0 16px 0'}}>{catalogTitle}</h2>
+                    <h2 style={{ margin: "24px 0 16px 0" }}>{catalogTitle}</h2>
                     <List
                         locale={{ emptyText }}
-                        grid={{gutter: 16, column: 2}}
+                        grid={{ gutter: 16, column: 2 }}
                         dataSource={groupProducts}
                         className={classNames("list-product-item")}
-                        style={{marginBottom: 20}}
-                        renderItem={(item) => (
-                            <ProductPreview {...item}/>
+                        style={{ marginBottom: 20 }}
+                        renderItem={(item, index) => (
+                            <ProductPreview {...item} imagePriority={index < 2} />
                         )}
                     />
                 </div>
-            ))
-        }
-    </>;
+            ))}
+            {hasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+            {loadingMore && (
+                <Flex justify="center" style={{ padding: 12 }}>
+                    <Loader />
+                </Flex>
+            )}
+        </>
+    );
 }

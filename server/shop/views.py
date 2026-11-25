@@ -19,6 +19,7 @@ from .enums import OrderPaymentStatusEnum, PaymentMethodEnum
 from .models import Catalog, Product, ProductView, BasketItem, ProductProperty, Order, OrderItem, Promocode, Banner
 from .serializers import (
     CatalogSerializer,
+    CatalogSummarySerializer,
     ProductCardSerializer,
     ProductSerializer,
     BasketItemSerializer,
@@ -31,32 +32,56 @@ from rest_framework.response import Response
 from rest_framework import status
 from django.db import transaction
 from rest_framework.views import APIView
-from django.db.models import Sum
+from django.db.models import Count, Q, Sum, Case, When, IntegerField
 
 from .telegram import TelegramAdmin
 from .wayforpayadmin import secret_key, WayForPayAdmin
 
 
 class PublicProductPagination(PageNumberPagination):
-    """Публічний список товарів (акції тощо) — порціями по 20."""
+    """Публічний список товарів — порціями по 10 (скрол)."""
 
-    page_size = 20
+    page_size = 10
     page_size_query_param = "page_size"
-    max_page_size = 100
+    max_page_size = 50
 
 
 class UserViewedProductsView(generics.ListCreateAPIView):
     model = Product
-    serializer_class = ProductSerializer
+    serializer_class = ProductCardSerializer
+    pagination_class = PublicProductPagination
 
     def get_queryset(self):
+        from django.db.models import Prefetch
+
         user_id = self.kwargs['user_id']
-        return Product.objects.filter(
-            product_views__user_id=user_id,
-            active=True,
-        ).order_by(
-            '-product_views__viewed_at'
-        ).distinct()
+        return (
+            Product.objects.filter(product_views__user_id=user_id, active=True)
+            .select_related("catalog")
+            .prefetch_related(
+                Prefetch(
+                    "product_properties",
+                    queryset=ProductProperty.objects.filter(active=True).only(
+                        "id", "title", "product_id", "active"
+                    ),
+                )
+            )
+            .order_by("-product_views__viewed_at")
+            .distinct()
+        )
+
+    def list(self, request, *args, **kwargs):
+        user_id = self.kwargs.get("user_id")
+        page = str(request.query_params.get("page", "1"))
+        ps = str(request.query_params.get("page_size") or PublicProductPagination.page_size)
+        cache_key = f"api:v1:viewed:{user_id}:p{page}:ps{ps}"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+        response = super().list(request, *args, **kwargs)
+        if response.status_code == 200:
+            cache.set(cache_key, response.data, timeout=min(120, api_json_cache_ttl_seconds()))
+        return response
 
 
 class UserBasketItemsView(generics.ListCreateAPIView):
@@ -64,8 +89,21 @@ class UserBasketItemsView(generics.ListCreateAPIView):
     serializer_class = BasketItemSerializer
 
     def get_queryset(self):
+        from django.db.models import Prefetch
+
         user_id = self.kwargs['user_id']
-        return BasketItem.objects.filter(user_id=user_id)
+        return (
+            BasketItem.objects.filter(user_id=user_id)
+            .select_related("product__catalog", "product_property")
+            .prefetch_related(
+                Prefetch(
+                    "product__product_properties",
+                    queryset=ProductProperty.objects.filter(active=True).only(
+                        "id", "title", "photo", "product_id", "active"
+                    ),
+                )
+            )
+        )
 
 
     def post(self, request, user_id):
@@ -170,13 +208,29 @@ class BasketItemUpdateView(generics.UpdateAPIView):
 
 
 class PromotionalProductList(generics.ListCreateAPIView):
-    queryset = Product.objects.filter(
-        active=True,
-        promotional_price__isnull=False,  # Ensures promotional price is not null
-        promotional_price__gt=0                       # Ensures price is greater than zero
-    ).order_by("-updated_at", "-priority", "-id")
-    serializer_class = ProductSerializer
+    serializer_class = ProductCardSerializer
     pagination_class = PublicProductPagination
+
+    def get_queryset(self):
+        from django.db.models import Prefetch
+
+        return (
+            Product.objects.filter(
+                active=True,
+                promotional_price__isnull=False,
+                promotional_price__gt=0,
+            )
+            .select_related("catalog")
+            .prefetch_related(
+                Prefetch(
+                    "product_properties",
+                    queryset=ProductProperty.objects.filter(active=True).only(
+                        "id", "title", "product_id", "active"
+                    ),
+                )
+            )
+            .order_by("-updated_at", "-priority", "-id")
+        )
 
     def list(self, request, *args, **kwargs):
         page = str(request.query_params.get("page", "1"))
@@ -264,13 +318,20 @@ class HomeFeedView(APIView):
         catalogs = (
             Catalog.objects.filter(active=True, products__active=True)
             .distinct()
+            .annotate(products_count=Count("products", filter=Q(products__active=True)))
             .order_by("priority")
             .only("id", "title", "photo", "priority")
         )
         cards = _home_product_qs()
         data = {
             "catalogs": [
-                {"id": c.id, "title": c.title, "photo": _absolute_media_url(c.photo), "products": []}
+                {
+                    "id": c.id,
+                    "title": c.title,
+                    "photo": _absolute_media_url(c.photo),
+                    "products_count": c.products_count,
+                    "products": [],
+                }
                 for c in catalogs
             ],
             "new_products": ProductCardSerializer(list(cards.order_by("-created_at", "-id")[:4]), many=True).data,
@@ -297,9 +358,129 @@ class ProductSearchView(APIView):
         qs = _home_product_qs().filter(title__icontains=q).order_by("-updated_at")[:24]
         return Response(ProductCardSerializer(qs, many=True).data)
 
+
+class NewProductsFeedView(APIView):
+    """Новинки — сторінками по 10."""
+
+    def get(self, request):
+        try:
+            page = max(1, int(request.query_params.get("page", 1) or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = max(1, min(50, int(request.query_params.get("page_size", 10) or 10)))
+        except (TypeError, ValueError):
+            page_size = 10
+        cache_key = f"api:v1:new-products:p{page_size}:page{page}"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+        qs = _home_product_qs().order_by("-created_at", "-id")
+        total = qs.count()
+        start = (page - 1) * page_size
+        chunk = list(qs[start : start + page_size])
+        body = {
+            "results": ProductCardSerializer(chunk, many=True).data,
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "next": start + page_size < total,
+        }
+        cache.set(cache_key, body, timeout=api_json_cache_ttl_seconds())
+        return Response(body)
+
+
+class ProductsByIdsView(APIView):
+    """Картки обраного: порція id (типово 10 при скролі)."""
+
+    def get(self, request):
+        raw = (request.query_params.get("ids") or "").strip()
+        if not raw:
+            return Response({"results": [], "next": False, "count": 0})
+        id_list: list[int] = []
+        for part in raw.split(","):
+            part = part.strip()
+            if part.isdigit():
+                id_list.append(int(part))
+            if len(id_list) >= 200:
+                break
+        try:
+            offset = max(0, int(request.query_params.get("offset", 0) or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        try:
+            limit = max(1, min(50, int(request.query_params.get("limit", 10) or 10)))
+        except (TypeError, ValueError):
+            limit = 10
+        if not id_list:
+            return Response({"results": [], "next": False, "count": 0})
+        chunk_ids = id_list[offset : offset + limit]
+        cache_key = (
+            f"api:v1:products:ids:{hashlib.sha256(raw.encode()).hexdigest()[:24]}:"
+            f"o{offset}:l{limit}"
+        )
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+        order = Case(
+            *[When(pk=pk, then=pos) for pos, pk in enumerate(chunk_ids)],
+            output_field=IntegerField(),
+        )
+        qs = _home_product_qs().filter(pk__in=chunk_ids).order_by(order)
+        body = {
+            "results": ProductCardSerializer(qs, many=True).data,
+            "count": len(id_list),
+            "offset": offset,
+            "limit": limit,
+            "next": offset + limit < len(id_list),
+        }
+        cache.set(cache_key, body, timeout=api_json_cache_ttl_seconds())
+        return Response(body)
+
+
 class CatalogList(generics.ListAPIView):
-    queryset = Catalog.objects.filter(active=True, products__active=True).distinct().order_by('priority')
-    serializer_class = CatalogSerializer
+    queryset = Catalog.objects.filter(active=True, products__active=True).distinct().order_by("priority")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        summary = self.request.query_params.get("summary", "1").lower() not in ("0", "false", "full")
+        if summary:
+            return qs.annotate(products_count=Count("products", filter=Q(products__active=True))).only(
+                "id", "title", "photo", "photo_banner", "priority", "active"
+            )
+        return qs
+
+    def list(self, request, *args, **kwargs):
+        summary = request.query_params.get("summary", "1").lower() not in ("0", "false", "full")
+        try:
+            page = max(1, int(request.query_params.get("page", 1) or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            page_size = max(1, min(50, int(request.query_params.get("page_size", 10) or 10)))
+        except (TypeError, ValueError):
+            page_size = 10
+        cache_key = f"api:v1:catalogs:summary={int(summary)}:p{page_size}:page{page}"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+        qs = self.filter_queryset(self.get_queryset())
+        total = qs.count()
+        start = (page - 1) * page_size
+        chunk = list(qs[start : start + page_size])
+        if summary:
+            results = CatalogSummarySerializer(chunk, many=True).data
+        else:
+            results = CatalogSerializer(chunk, many=True).data
+        body = {
+            "results": results,
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "next": start + page_size < total,
+        }
+        cache.set(cache_key, body, timeout=api_json_cache_ttl_seconds())
+        return Response(body)
 
 
 
@@ -320,7 +501,7 @@ class CatalogDetail(generics.RetrieveAPIView):
         except (TypeError, ValueError):
             page = 1
         try:
-            page_size = max(1, min(100, int(request.query_params.get("page_size", 20) or 20)))
+            page_size = max(1, min(50, int(request.query_params.get("page_size", 10) or 10)))
         except (TypeError, ValueError):
             page_size = 20
 
@@ -338,6 +519,7 @@ class CatalogDetail(generics.RetrieveAPIView):
             context={
                 **self.get_serializer_context(),
                 "catalog_products_queryset": page_slice,
+                "light_products": True,
             },
         )
         data = dict(serializer.data)

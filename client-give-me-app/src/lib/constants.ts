@@ -12,6 +12,9 @@ const fromEnv = process.env.NEXT_PUBLIC_API_HOST
 /** Базовий URL Django API. Обовʼязково задайте NEXT_PUBLIC_API_HOST при збірці (Docker / прод). */
 export const API_HOST = fromEnv || 'http://127.0.0.1:8000'
 
+/** Одна порція списків (категорії, товари) для infinite scroll. */
+export const LIST_PAGE_SIZE = 10
+
 export const ORDER_STATUS = {
     pending: { key: 'pending', locale: 'Очікує підтвердження'},
     completed: { key: 'completed', locale: 'Виконано'},

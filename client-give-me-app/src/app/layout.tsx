@@ -17,6 +17,7 @@ import './mockEnv'
 import {NavBar} from "@/components/shared/NavBar";
 import { NavBarHead } from "@/components/shared/NavBarHead";
 import { PageEnterLoader } from "@/components/shared/PageEnterLoader";
+import { fetchCatalogsRequest } from "@/store/catalogSlice";
 import {HeartOutlined, HeartFilled} from '@ant-design/icons';
 
 export const viewport: Viewport = {
@@ -79,6 +80,10 @@ export default function RootLayout({
     const [selectedKeys, setSelectedKeys] = useState(SIDEBAR_PATH_MAPPER[pathname])
 
     const router = useRouter();
+
+    useEffect(() => {
+        store.dispatch(fetchCatalogsRequest({ page: 1, append: false, silent: true }));
+    }, []);
 
     const items: MenuItem[] = useMemo(() => [
         {

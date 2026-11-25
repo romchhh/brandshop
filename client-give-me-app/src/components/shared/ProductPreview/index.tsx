@@ -45,9 +45,9 @@ export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_
                                 <CachedRemoteImage
                                     src={photo}
                                     alt={title}
-                                    width={imagePriority ? 560 : 400}
-                                    height={imagePriority ? 560 : 400}
-                                    sizes="(max-width: 768px) 50vw, 200px"
+                                    width={imagePriority ? 480 : 320}
+                                    height={imagePriority ? 480 : 320}
+                                    sizes="(max-width: 768px) 50vw, 160px"
                                     priority={!!imagePriority}
                                     style={{
                                         width: '100%',

@@ -94,6 +94,7 @@ class ProductAdmin(admin.ModelAdmin):
             "rows": state.rows_ok or "",
             "message": (state.message or "")[:240],
             "running": state.status == CatalogSyncState.STATUS_RUNNING,
+            "percent": int((state.progress_done or 0) * 100 / (state.progress_total or 1000)),
         }
         return super().changelist_view(request, extra_context=extra_context)
     list_display = (

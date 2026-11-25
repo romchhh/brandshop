@@ -1,7 +1,7 @@
 "use client";
 
 import { Search } from "@/components/shared/Search";
-import { Space, Flex, List, Row, Col, Select, InputNumber, Button } from 'antd';
+import { Space, Flex, List, Row, Col, Select, InputNumber } from 'antd';
 import Image from "next/image";
 import { useDispatch, useSelector } from "react-redux";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -15,6 +15,7 @@ import { RootState } from "@/store/store";
 import { BackButton } from "@/components/shared/BackButton";
 import { Loader } from "@/components/shared/Loader";
 import { getCatalogSizeFilterOptions, propertyTitleMatchesSize } from "@/config/catalogs";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 
 export default function CatalogItem({ params: { id } }) {
     const dispatch = useDispatch();
@@ -28,6 +29,7 @@ export default function CatalogItem({ params: { id } }) {
     const catalogLoadingMore = useSelector((state: RootState) => state.catalog.catalogLoadingMore);
     const catalogProductsHasNext = useSelector((state: RootState) => state.catalog.catalogProductsHasNext);
     const lastLoadedPageRef = useRef(1);
+    const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
     const sizeFilterOptions = useMemo(
         () => getCatalogSizeFilterOptions(catalog?.title, catalog?.products || []),
@@ -55,6 +57,12 @@ export default function CatalogItem({ params: { id } }) {
         lastLoadedPageRef.current = next;
         dispatch(fetchCatalogRequest({ id, page: next, append: true }));
     }, [catalogProductsHasNext, catalogLoadingMore, isLoading, dispatch, id]);
+
+    useInfiniteScroll(
+        scrollSentinelRef,
+        loadMoreCatalog,
+        catalogProductsHasNext && !catalogLoadingMore && !isLoading,
+    );
 
     // Зберігаємо фільтри при розмонтуванні
     useEffect(() => {
@@ -199,10 +207,11 @@ export default function CatalogItem({ params: { id } }) {
                         )}
                     />
                     {catalogProductsHasNext && (
-                        <Flex justify="center" style={{ marginTop: 16 }}>
-                            <Button type="default" onClick={loadMoreCatalog} loading={catalogLoadingMore} block>
-                                Показати ще
-                            </Button>
+                        <div ref={scrollSentinelRef} style={{ height: 1, marginTop: 16 }} aria-hidden />
+                    )}
+                    {catalogLoadingMore && (
+                        <Flex justify="center" style={{ marginTop: 8 }}>
+                            <Loader />
                         </Flex>
                     )}
                 </>

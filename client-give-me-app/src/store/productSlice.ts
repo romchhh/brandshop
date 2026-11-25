@@ -2,6 +2,8 @@ import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface ProductState {
     viewProducts: any[];
+    viewProductsHasNext: boolean;
+    viewProductsLoadingMore: boolean;
     promotionalProducts: any[];
     promotionalProductsHasNext: boolean;
     promotionalLoadingMore: boolean;
@@ -12,6 +14,8 @@ interface ProductState {
 
 const initialState: ProductState = {
     viewProducts: [],
+    viewProductsHasNext: false,
+    viewProductsLoadingMore: false,
     promotionalProducts: [],
     promotionalProductsHasNext: false,
     promotionalLoadingMore: false,
@@ -32,13 +36,31 @@ const productSlice = createSlice({
             state.loading = false;
             state.product = action.payload;
         },
-        fetchViewProductsRequest: (state) => {
-            state.loading = true;
+        fetchViewProductsRequest: (state, action: PayloadAction<number | { userId: number; page?: number; append?: boolean }>) => {
+            const append = typeof action.payload === 'object' && action.payload?.append;
+            if (append) {
+                state.viewProductsLoadingMore = true;
+            } else {
+                state.loading = true;
+            }
             state.error = null;
         },
-        fetchViewProductsSuccess: (state, action: PayloadAction<any[]>) => {
+        fetchViewProductsSuccess: (state, action: PayloadAction<any[] | { results: any[]; append?: boolean; next?: boolean | string }>) => {
             state.loading = false;
-            state.viewProducts = action.payload;
+            state.viewProductsLoadingMore = false;
+            const d = action.payload;
+            if (Array.isArray(d)) {
+                state.viewProducts = d;
+                state.viewProductsHasNext = false;
+                return;
+            }
+            const list = d.results ?? [];
+            if (d.append) {
+                state.viewProducts = [...state.viewProducts, ...list];
+            } else {
+                state.viewProducts = list;
+            }
+            state.viewProductsHasNext = !!d.next;
         },
         fetchPromotionalProductsRequest: (state, action: PayloadAction<{ page?: number; append?: boolean } | void>) => {
             const append = action.payload && typeof action.payload === 'object' && action.payload.append;

@@ -6,7 +6,8 @@ import {Search} from "@/components/shared/Search";
 import {CachedRemoteImage} from "@/components/shared/CachedRemoteImage";
 
 import './index.css'
-import {ChangeEvent, useEffect, useState} from "react";
+import {ChangeEvent, useCallback, useEffect, useRef, useState} from "react";
+import { useInfiniteScroll } from "@/hooks/useInfiniteScroll";
 import {emptyText} from "@/components/shared/EmptyText";
 import {useRouter} from "next/navigation";
 import {useDispatch, useSelector} from "react-redux";
@@ -50,14 +51,19 @@ import {fetchCatalogsRequest} from "@/store/catalogSlice";
 export default function Catalog() {
     const router = useRouter()
     const catalogs = useSelector((state: RootState) => state.catalog.catalogs);
+    const catalogsHasNext = useSelector((state: RootState) => state.catalog.catalogsHasNext);
+    const catalogsLoadingMore = useSelector((state: RootState) => state.catalog.catalogsLoadingMore);
+    const listLoading = useSelector((state: RootState) => state.catalog.loading);
     const [ resultCatalogs, setResultCatalogs ] = useState(catalogs)
     const dispatch = useDispatch()
     const user = useSelector((state: RootState) => state.user.user)
+    const lastPageRef = useRef(1);
+    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const onSearch = (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value.toLowerCase()
         setResultCatalogs(catalogs.filter((catalog) =>
-            catalog.title.toLowerCase().includes(value) || catalog.products.find((product: { title: string }) => product.title.toLowerCase().includes(value))
+            catalog.title.toLowerCase().includes(value)
         ))
     }
     const onClearSearch = () => {
@@ -67,8 +73,18 @@ export default function Catalog() {
     const goToCatalogItemPage = (id: number) => router.push(`/catalog/${id}`)
 
     useMount(() => {
-        dispatch(fetchCatalogsRequest());
+        lastPageRef.current = 1;
+        dispatch(fetchCatalogsRequest({ page: 1, append: false, silent: catalogs.length > 0 }));
     });
+
+    const loadMoreCatalogs = useCallback(() => {
+        if (!catalogsHasNext || catalogsLoadingMore || listLoading) return;
+        const next = lastPageRef.current + 1;
+        lastPageRef.current = next;
+        dispatch(fetchCatalogsRequest({ page: next, append: true, silent: true }));
+    }, [catalogsHasNext, catalogsLoadingMore, listLoading, dispatch]);
+
+    useInfiniteScroll(sentinelRef, loadMoreCatalogs, catalogsHasNext && !catalogsLoadingMore);
 
     useEffect(() => {
         setResultCatalogs(catalogs)
@@ -101,9 +117,9 @@ export default function Catalog() {
                                 <CachedRemoteImage
                                     src={item.photo || item.products?.[0]?.photo}
                                     alt={item.title}
-                                    width={800}
-                                    height={560}
-                                    sizes="(max-width: 480px) 100vw, 360px"
+                                    width={400}
+                                    height={280}
+                                    sizes="(max-width: 480px) 50vw, 200px"
                                     style={{
                                         width: '100%',
                                         height: '100%',
@@ -114,12 +130,20 @@ export default function Catalog() {
                         </div>
                         <div className="category-info">
                             <div className="category-title">{item.title.toUpperCase()}</div>
-                            <div className="category-count">{item.products?.length || 0} товарів</div>
+                            <div className="category-count">
+                                {item.products_count ?? item.products?.length ?? 0} товарів
+                            </div>
                             <div className="category-arrow">›</div>
                         </div>
                     </div>
                 </List.Item>
             )}
         />
+        {catalogsHasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+        {catalogsLoadingMore && (
+            <Flex justify="center" style={{ padding: 12 }}>
+                Завантаження…
+            </Flex>
+        )}
     </Space.Compact>;
 };
