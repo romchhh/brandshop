@@ -7,6 +7,7 @@ from django.db.models import Q
 
 from rest_framework import serializers
 from .models import Catalog, Product, ProductProperty, BasketItem, Order, OrderItem, Promocode
+from shop.promotional_rules import effective_promotional_price
 
 
 def _absolute_media_url(file_field) -> str | None:
@@ -53,10 +54,15 @@ class ProductCardSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
     catalog_title = serializers.SerializerMethodField()
     product_properties = serializers.SerializerMethodField()
+    promotional_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = ["id", "title", "photo", "price", "promotional_price", "catalog_title", "product_properties"]
+
+    def get_promotional_price(self, obj):
+        promo = effective_promotional_price(obj)
+        return float(promo) if promo is not None else None
 
     def get_catalog_title(self, obj):
         catalog = getattr(obj, "catalog", None)
@@ -75,11 +81,16 @@ class ProductSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
     catalog_title = serializers.SerializerMethodField()  # Add catalog_title field
     product_properties = serializers.SerializerMethodField()  # Use a method field
+    promotional_price = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = ['id', 'title', 'description', 'photo', 'price', 'promotional_price', 'catalog_title', 'catalog_id',
                   'product_properties', 'property_title']
+
+    def get_promotional_price(self, obj):
+        promo = effective_promotional_price(obj)
+        return float(promo) if promo is not None else None
 
     def get_catalog_title(self, obj):
         return obj.catalog.title

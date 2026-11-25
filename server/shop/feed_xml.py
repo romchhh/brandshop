@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as django_format
 
 from shop.models import Catalog, Product, ProductProperty
+from shop.promotional_rules import effective_promotional_price
 
 
 def _shop_site_url() -> str:
@@ -127,7 +128,7 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
     prods_el = _sub(root, "products", count=str(len(products)))
     for product in products:
         catalog = product.catalog
-        sale_price = product.promotional_price
+        sale_price = effective_promotional_price(product)
         has_sale = sale_price is not None and sale_price > 0
 
         prod_el = _sub(

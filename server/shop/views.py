@@ -14,6 +14,7 @@ from rest_framework.pagination import PageNumberPagination
 
 from shop.api_json_cache import api_json_cache_ttl_seconds
 from shop.catalog_import import run_product_sync
+from shop.promotional_rules import effective_promotional_price, promo_excluded_catalog_titles
 
 from .enums import OrderPaymentStatusEnum, PaymentMethodEnum
 from .models import Catalog, Product, ProductView, BasketItem, ProductProperty, Order, OrderItem, Promocode, Banner
@@ -221,6 +222,7 @@ class PromotionalProductList(generics.ListCreateAPIView):
                 promotional_price__isnull=False,
                 promotional_price__gt=0,
             )
+            .exclude(catalog__title__in=promo_excluded_catalog_titles())
             .select_related("catalog")
             .prefetch_related(
                 Prefetch(
@@ -343,7 +345,11 @@ class HomeFeedView(APIView):
             ],
             "new_products": ProductCardSerializer(list(cards.order_by("-created_at", "-id")[:4]), many=True).data,
             "promotional_products": ProductCardSerializer(
-                list(cards.filter(promotional_price__gt=0).order_by("-updated_at", "-id")[:4]),
+                list(
+                    cards.filter(promotional_price__gt=0)
+                    .exclude(catalog__title__in=promo_excluded_catalog_titles())
+                    .order_by("-updated_at", "-id")[:4]
+                ),
                 many=True,
             ).data,
             "products": ProductCardSerializer(
@@ -572,8 +578,9 @@ class UserOrdersView(generics.ListCreateAPIView):
         promotion_amount = Decimal(0)
         for item in basket_items:
             total_amount += item.product.price * item.quantity
-            if item.product.promotional_price is not None and item.product.promotional_price > 0:
-                promotion_amount += (item.quantity * (item.product.price - item.product.promotional_price))
+            promo = effective_promotional_price(item.product)
+            if promo is not None:
+                promotion_amount += item.quantity * (item.product.price - promo)
         total = total_amount - promotion_amount
 
         if promocode_id:

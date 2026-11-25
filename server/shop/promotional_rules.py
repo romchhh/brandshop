@@ -6,7 +6,7 @@
 Якщо активних варіантів 0 або більше 1 — promotional_price скидається (акція лише для «останнього» розміру).
 
 Автоакція не застосовується до аксесуарів (назви каталогів як у імпорті):
-Ремені, Окуляри, Сумки, Гаманці — для них promotional_price завжди скидається.
+Сумки, Гаманці (кошельки), Ремені, Шкарпетки (носки), Шапки, Кепки, Окуляри (очки).
 """
 from __future__ import annotations
 
@@ -19,22 +19,40 @@ from shop.models import Product
 STEP = Decimal("50")
 TEN_PCT = Decimal("0.9")
 
-# Каталоги-аксесуари: знижка «останній розмір» не діє (одяг/взуття — як раніше).
-_CATALOG_TITLES_NO_LAST_VARIANT_PROMO = frozenset(
+# Аксесуари: знижка «останній розмір» не діє; у API/кошику акцію не показуємо.
+_CATALOG_TITLES_NO_AUTO_PROMO = frozenset(
     {
-        "Ремені",
-        "Окуляри",
         "Сумки",
         "Гаманці",
+        "Кошельки",
+        "Ремені",
+        "Шкарпетки",
+        "Носки",
+        "Шапки",
+        "Кепки",
+        "Окуляри",
+        "Очки",
     }
 )
 
 
 def catalog_excluded_from_auto_promotional(catalog_title: str) -> bool:
-    """True — не рахуємо promotional_price за правилом останнього розміру."""
+    """True — не рахуємо promotional_price (ані авто, ані відображення знижки)."""
     if not catalog_title:
         return False
-    return catalog_title.strip() in _CATALOG_TITLES_NO_LAST_VARIANT_PROMO
+    return catalog_title.strip() in _CATALOG_TITLES_NO_AUTO_PROMO
+
+
+def effective_promotional_price(product: Product) -> Decimal | None:
+    """Ціна зі знижкою для клієнта та замовлення; None якщо каталог — аксесуар."""
+    catalog = getattr(product, "catalog", None)
+    title = getattr(catalog, "title", "") if catalog is not None else ""
+    if catalog_excluded_from_auto_promotional(title):
+        return None
+    promo = product.promotional_price
+    if promo is None or promo <= 0:
+        return None
+    return promo
 
 
 def floor_money_to_step(amount: Decimal, step: Decimal = STEP) -> Decimal:
@@ -110,3 +128,7 @@ def apply_last_active_variant_promotional_prices() -> int:
         Product.objects.bulk_update(batch, ["promotional_price"])
         changed += len(batch)
     return changed
+
+
+def promo_excluded_catalog_titles() -> tuple[str, ...]:
+    return tuple(sorted(_CATALOG_TITLES_NO_AUTO_PROMO))
