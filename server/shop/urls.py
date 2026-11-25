@@ -2,8 +2,10 @@ from django.urls import path
 from .views import CatalogList, CatalogDetail, UserViewedProductsView, ProductDetail, PromotionalProductList, \
     UserBasketItemsView, BasketItemUpdateView, UserOrdersView, WayForPayHookView, PromocodeDetail, UserMetaDataView, \
     BotStatisticsView, BotSyncProductsView, HomeFeedView, ProductSearchView, NewProductsFeedView, ProductsByIdsView
+from .feed_views import ShopFeedXmlView
 
 urlpatterns = [
+    path('feed.xml', ShopFeedXmlView.as_view(), name='api-shop-feed-xml'),
     path('home/', HomeFeedView.as_view(), name='home-feed'),
     path('products/search/', ProductSearchView.as_view(), name='product-search'),
     path('new-products/', NewProductsFeedView.as_view(), name='new-products-feed'),

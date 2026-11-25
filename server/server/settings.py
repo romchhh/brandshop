@@ -216,6 +216,10 @@ PUBLIC_BASE_URL = (
     os.getenv('API_PUBLIC_URL', os.getenv('FILE_HOST', '')).strip().rstrip('/')
 )
 
+# Публічний сайт (Next.js): посилання на товари/категорії та /media на домені магазину.
+SHOP_SITE_URL = os.getenv('SITE_URL', os.getenv('SHOP_SITE_URL', '')).strip().rstrip('/')
+SHOP_FEED_NAME = os.getenv('SHOP_FEED_NAME', 'BrandShop').strip() or 'BrandShop'
+
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 ADMIN_ID = os.getenv('ADMIN_ID')

@@ -21,8 +21,10 @@ from django.conf.urls.static import static
 from django.views.static import serve
 
 from shop.admin_views import catalog_sync_status, update_products_from_sheets
+from shop.feed_views import ShopFeedXmlView
 
 urlpatterns = [
+    path("feed.xml", ShopFeedXmlView.as_view(), name="shop-feed-xml"),
     path(
         "admin/update-products-from-sheets/",
         update_products_from_sheets,
