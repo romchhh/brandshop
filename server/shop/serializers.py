@@ -1,6 +1,9 @@
 # serializers.py
 
+from collections.abc import Iterable
+
 from django.conf import settings
+from django.db.models import Q
 
 from rest_framework import serializers
 from .models import Catalog, Product, ProductProperty, BasketItem, Order, OrderItem, Promocode
@@ -16,6 +19,21 @@ def _absolute_media_url(file_field) -> str | None:
     if base:
         return f"{base}{path}" if path.startswith('/') else f"{base}/{path}"
     return path
+
+
+def catalog_cover_photos_by_id(catalog_ids: Iterable[int]) -> dict[int, str | None]:
+    """Перше фото активного товару в категорії (як у списку `/catalog/:id`)."""
+    ids = list(dict.fromkeys(int(x) for x in catalog_ids))
+    if not ids:
+        return {}
+    rows = (
+        Product.objects.filter(catalog_id__in=ids, active=True)
+        .exclude(Q(photo="") | Q(photo__isnull=True))
+        .order_by("catalog_id", "-updated_at", "-priority", "-id")
+        .distinct("catalog_id")
+        .only("catalog_id", "photo")
+    )
+    return {p.catalog_id: _absolute_media_url(p.photo) for p in rows}
 
 
 class ProductPropertySerializer(serializers.ModelSerializer):
@@ -91,13 +109,19 @@ class CatalogSummarySerializer(serializers.ModelSerializer):
         fields = ["id", "title", "photo", "photo_banner", "products_count", "products"]
 
     def get_photo(self, obj):
-        return _absolute_media_url(obj.photo)
+        own = _absolute_media_url(obj.photo)
+        if own:
+            return own
+        covers = self.context.get("cover_photos") or {}
+        return covers.get(obj.id)
 
     def get_photo_banner(self, obj):
         return _absolute_media_url(obj.photo_banner)
 
     def get_products(self, obj):
-        return []
+        covers = self.context.get("cover_photos") or {}
+        url = _absolute_media_url(obj.photo) or covers.get(obj.id)
+        return [{"photo": url}] if url else []
 
 
 class CatalogSerializer(serializers.ModelSerializer):

@@ -20,6 +20,7 @@ from .models import Catalog, Product, ProductView, BasketItem, ProductProperty, 
 from .serializers import (
     CatalogSerializer,
     CatalogSummarySerializer,
+    catalog_cover_photos_by_id,
     ProductCardSerializer,
     ProductSerializer,
     BasketItemSerializer,
@@ -310,7 +311,7 @@ class HomeFeedView(APIView):
     """Легкий payload головної: категорії без товарів + кілька карток."""
 
     def get(self, request):
-        cache_key = "api:v1:home"
+        cache_key = "api:v2:home"
         hit = cache.get(cache_key)
         if hit is not None:
             return Response(hit)
@@ -322,17 +323,23 @@ class HomeFeedView(APIView):
             .order_by("priority")
             .only("id", "title", "photo", "priority")
         )
+        catalog_list = list(catalogs)
+        cover_photos = catalog_cover_photos_by_id(c.id for c in catalog_list)
         cards = _home_product_qs()
         data = {
             "catalogs": [
                 {
                     "id": c.id,
                     "title": c.title,
-                    "photo": _absolute_media_url(c.photo),
+                    "photo": _absolute_media_url(c.photo) or cover_photos.get(c.id),
                     "products_count": c.products_count,
-                    "products": [],
+                    "products": (
+                        [{"photo": cover_photos.get(c.id)}]
+                        if not _absolute_media_url(c.photo) and cover_photos.get(c.id)
+                        else []
+                    ),
                 }
-                for c in catalogs
+                for c in catalog_list
             ],
             "new_products": ProductCardSerializer(list(cards.order_by("-created_at", "-id")[:4]), many=True).data,
             "promotional_products": ProductCardSerializer(
@@ -460,7 +467,7 @@ class CatalogList(generics.ListAPIView):
             page_size = max(1, min(50, int(request.query_params.get("page_size", 10) or 10)))
         except (TypeError, ValueError):
             page_size = 10
-        cache_key = f"api:v1:catalogs:summary={int(summary)}:p{page_size}:page{page}"
+        cache_key = f"api:v2:catalogs:summary={int(summary)}:p{page_size}:page{page}"
         hit = cache.get(cache_key)
         if hit is not None:
             return Response(hit)
@@ -469,7 +476,10 @@ class CatalogList(generics.ListAPIView):
         start = (page - 1) * page_size
         chunk = list(qs[start : start + page_size])
         if summary:
-            results = CatalogSummarySerializer(chunk, many=True).data
+            cover_ctx = {
+                "cover_photos": catalog_cover_photos_by_id(c.id for c in chunk),
+            }
+            results = CatalogSummarySerializer(chunk, many=True, context=cover_ctx).data
         else:
             results = CatalogSerializer(chunk, many=True).data
         body = {
