@@ -22,7 +22,7 @@ export async function GET() {
     const url = `${base}/feed.xml`;
     try {
         const res = await fetch(url, {
-            headers: { Accept: "application/xml" },
+            headers: { Accept: "*/*" },
             cache: "no-store",
         });
         if (!res.ok) {
