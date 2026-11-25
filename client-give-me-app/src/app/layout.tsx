@@ -16,6 +16,7 @@ import {SDKProvider} from "@telegram-apps/sdk-react";
 import './mockEnv'
 import {NavBar} from "@/components/shared/NavBar";
 import { NavBarHead } from "@/components/shared/NavBarHead";
+import { PageEnterLoader } from "@/components/shared/PageEnterLoader";
 import {HeartOutlined, HeartFilled} from '@ant-design/icons';
 
 export const viewport: Viewport = {
@@ -180,6 +181,7 @@ export default function RootLayout({
                         <NavBarHead pathname={pathname} setShowSidebarMenu={setShowSidebarMenu}
                                     showSidebarMenu={showSidebarMenu}></NavBarHead>
                         <Content className="content">
+                            <PageEnterLoader />
                             {children}
                             <Drawer
                                 placement={'left'}

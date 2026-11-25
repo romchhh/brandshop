@@ -69,7 +69,7 @@ export const ProductPreview: FC<ProductProps> = ({className, id, title, catalog_
                         <div className="product-preview-title">{title}</div>
                         <div className="product-preview-catalog-title">{catalog_title}</div>
                         <div className="sizes-container">
-                            {product_properties.map((property) => (
+                            {(product_properties || []).slice(0, 6).map((property) => (
                                 <div className="size-circle" key={property.id}>
                                     {property.title}
                                 </div>

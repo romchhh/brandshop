@@ -29,6 +29,30 @@ class ProductPropertySerializer(serializers.ModelSerializer):
         return _absolute_media_url(obj.photo)
 
 
+class ProductCardSerializer(serializers.ModelSerializer):
+    """Коротка картка для головної: без опису і без фото кожного розміру."""
+
+    photo = serializers.SerializerMethodField()
+    catalog_title = serializers.SerializerMethodField()
+    product_properties = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Product
+        fields = ["id", "title", "photo", "price", "promotional_price", "catalog_title", "product_properties"]
+
+    def get_catalog_title(self, obj):
+        catalog = getattr(obj, "catalog", None)
+        return catalog.title if catalog is not None else ""
+
+    def get_photo(self, obj):
+        return _absolute_media_url(obj.photo)
+
+    def get_product_properties(self, obj):
+        cached = getattr(obj, "_prefetched_objects_cache", {}).get("product_properties")
+        props = cached if cached is not None else obj.product_properties.filter(active=True)
+        return [{"id": p.id, "title": p.title} for p in props if getattr(p, "active", True)]
+
+
 class ProductSerializer(serializers.ModelSerializer):
     photo = serializers.SerializerMethodField()
     catalog_title = serializers.SerializerMethodField()  # Add catalog_title field
@@ -46,7 +70,11 @@ class ProductSerializer(serializers.ModelSerializer):
         return _absolute_media_url(obj.photo)
 
     def get_product_properties(self, obj):
-        active_properties = obj.product_properties.filter(active=True)
+        cached = getattr(obj, "_prefetched_objects_cache", {}).get("product_properties")
+        if cached is not None:
+            active_properties = [p for p in cached if getattr(p, "active", True)]
+        else:
+            active_properties = obj.product_properties.filter(active=True)
         return ProductPropertySerializer(active_properties, many=True).data
 
 

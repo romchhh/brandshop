@@ -21,9 +21,6 @@ import {createBasketItemRequest, updateBasketItemRequest} from "@/store/basketIt
 import {Loader} from "@/components/shared/Loader";
 import {toggleFavorite} from "@/store/favoriteSlice";
 import classNames from "classnames";
-import {resolveMediaSrc} from "@/lib/resolveMediaSrc";
-
-const LOG_PREFIX = "[BrandShop] Сторінка товару";
 
 export default function ProductItem({params: {id}}) {
     const dispatch = useDispatch()
@@ -44,15 +41,7 @@ export default function ProductItem({params: {id}}) {
 
     const onSelectProperty = (property) => {
         setSelectedProperty(property);
-        const next = property?.photo || product?.photo;
-        setPhoto(next);
-        console.log(`${LOG_PREFIX} обрано розмір`, {
-            propertyId: property?.id,
-            propertyPhotoRaw: property?.photo ?? null,
-            fallbackMainPhoto: product?.photo ?? null,
-            chosen: next ?? null,
-            resolved: next ? resolveMediaSrc(next) : null,
-        });
+        setPhoto(property?.photo || product?.photo);
     }
 
     useEffect(() => {
@@ -69,24 +58,7 @@ export default function ProductItem({params: {id}}) {
         if (product?.product_properties?.length > 0) {
             setSelectedProperty(product?.product_properties[0])
         }
-        const chosen = product?.product_properties?.[0]?.photo || product?.photo;
-        setPhoto(chosen);
-
-        const pub = process.env.NEXT_PUBLIC_API_HOST || "";
-        console.log(`${LOG_PREFIX} стан після product у Redux`, {
-            routeProductId: id,
-            mainPhotoRaw: product.photo ?? null,
-            firstPropertyPhotoRaw: product.product_properties?.[0]?.photo ?? null,
-            chosenForDisplay: chosen ?? null,
-            resolvedChosen: chosen ? resolveMediaSrc(chosen) : null,
-            NEXT_PUBLIC_API_HOST: pub || "(порожньо — /media/... не допишеться до домену)",
-        });
-        if (!chosen) {
-            console.warn(`${LOG_PREFIX} немає URL фото: і product.photo, і photo у розмірів порожні`, {
-                productId: product.id,
-                title: product.title,
-            });
-        }
+        setPhoto(product?.product_properties?.[0]?.photo || product?.photo);
     }, [product]);
 
     useEffect(() => {
@@ -130,25 +102,11 @@ export default function ProductItem({params: {id}}) {
                     <CachedRemoteImage
                         src={photo}
                         alt={product?.title ?? 'Товар'}
-                        width={1200}
-                        height={1200}
-                        sizes="100vw"
+                        width={720}
+                        height={720}
+                        sizes="(max-width: 720px) 100vw, 720px"
                         priority
                         className="product-item-show-photo"
-                        onError={(e) => {
-                            console.error(`${LOG_PREFIX} помилка завантаження зображення (onError)`, {
-                                routeProductId: id,
-                                rawSrc: photo,
-                                resolvedSrc: resolveMediaSrc(photo),
-                                NEXT_PUBLIC_API_HOST: process.env.NEXT_PUBLIC_API_HOST || "(порожньо)",
-                            });
-                        }}
-                        onLoad={() => {
-                            console.log(`${LOG_PREFIX} зображення успішно завантажено`, {
-                                routeProductId: id,
-                                resolvedSrc: resolveMediaSrc(photo),
-                            });
-                        }}
                     />
                 )}
                 <Flex justify="start" vertical gap="small">

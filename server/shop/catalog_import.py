@@ -378,6 +378,127 @@ def _pick_product_for_article(article: str) -> Product | None:
     return keep
 
 
+def _unlink_media_name(name: str) -> bool:
+    """Видаляє файл у MEDIA_ROOT. Повертає True, якщо файл був і його прибрано."""
+    rel = (name or "").strip().lstrip("/")
+    if not rel or ".." in Path(rel).parts:
+        return False
+    path = Path(settings.MEDIA_ROOT) / rel
+    try:
+        if path.is_file():
+            path.unlink()
+            return True
+    except OSError:
+        _sync_logger.warning("Не вдалося видалити медіа %s", path, exc_info=True)
+    return False
+
+
+def _retire_product(product: Product) -> str:
+    """
+    Товар зник із таблиць.
+    Якщо він є в замовленнях — ховаємо з каталогу і стираємо фото, рядок лишаємо для історії.
+    Інакше видаляємо разом із розмірами, переглядами і кошиком.
+    """
+    from shop.models import BasketItem, OrderItem, ProductView
+
+    names = []
+    if product.photo and product.photo.name:
+        names.append(product.photo.name)
+    for prop in product.product_properties.all().only("id", "photo"):
+        if prop.photo and prop.photo.name:
+            names.append(prop.photo.name)
+    for name in names:
+        _unlink_media_name(name)
+
+    has_orders = OrderItem.objects.filter(product_id=product.pk).exists()
+    if has_orders:
+        product.photo = None
+        product.active = False
+        product.save(update_fields=["photo", "active"])
+        product.product_properties.update(photo="", active=False)
+        BasketItem.objects.filter(product_id=product.pk).delete()
+        return "hidden"
+    BasketItem.objects.filter(product_id=product.pk).delete()
+    ProductView.objects.filter(product_id=product.pk).delete()
+    product.product_properties.all().delete()
+    product.photo = None
+    product.delete()
+    return "deleted"
+
+
+def _delete_orphan_product_media() -> int:
+    """Файли в product_photos / product_property_photos, на які вже ніхто не посилається."""
+    referenced: set[str] = set()
+    for name in Product.objects.exclude(photo__isnull=True).exclude(photo="").values_list("photo", flat=True):
+        if name:
+            referenced.add(str(name))
+    for name in ProductProperty.objects.exclude(photo__isnull=True).exclude(photo="").values_list("photo", flat=True):
+        if name:
+            referenced.add(str(name))
+
+    removed = 0
+    root = Path(settings.MEDIA_ROOT)
+    for folder in ("product_photos", "product_property_photos"):
+        base = root / folder
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root).as_posix()
+            if rel in referenced:
+                continue
+            try:
+                path.unlink()
+                removed += 1
+            except OSError:
+                _sync_logger.warning("Не вдалося видалити осиротіле медіа %s", path, exc_info=True)
+    return removed
+
+
+def _prune_products_missing_from_sheets(
+    seen_by_catalog: dict[str, set[str]],
+    loaded_catalogs: set[str],
+    unsafe_catalogs: set[str],
+    log,
+) -> tuple[int, int, int]:
+    """
+    Прибирає товари каталогів, які цього разу успішно прочитані з таблиці,
+    але їхнього артикула в рядках уже немає.
+    Порожня відповідь таблиці або помилка читання каталог не чіпає.
+    """
+    deleted = 0
+    hidden = 0
+    for title in loaded_catalogs:
+        if title in unsafe_catalogs:
+            log(f"Каталог «{title}» не чистимо: таблицю не вдалося прочитати повністю.")
+            continue
+        articles = seen_by_catalog.get(title, set())
+        ids = list(
+            Product.objects.filter(catalog__title=title)
+            .exclude(article="")
+            .values_list("pk", flat=True)
+        )
+        for pk in ids:
+            product = Product.objects.filter(pk=pk).first()
+            if product is None:
+                continue
+            key = _normalize_article(product.article).lower()
+            if key in articles:
+                continue
+            outcome = _retire_product(product)
+            if outcome == "deleted":
+                deleted += 1
+            else:
+                hidden += 1
+    orphans = _delete_orphan_product_media()
+    log(
+        f"Прибирання після імпорту: видалено товарів {deleted}, "
+        f"сховано (є в замовленнях) {hidden}, зайвих файлів фото {orphans}."
+    )
+    return deleted, hidden, orphans
+
+
 def run_product_sync(log=print, *, trigger: str = "schedule"):
     """
     Імпорт/оновлення товарів з Google Таблиць (логіка спільна з manage.py update_products).
@@ -395,6 +516,9 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
     rows_processed = 0
     total_photo_fail = 0
     total_photo_unrecognized = 0
+    seen_by_catalog: dict[str, set[str]] = {}
+    loaded_catalogs: set[str] = set()
+    unsafe_catalogs: set[str] = set()
 
     notify_sync_started(source="Імпорт")
     if _catalog_sync_tg_verbose():
@@ -422,15 +546,18 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
                 err_line = f"{catalog_title} | {spreadsheet_id} | {exc!s}"
                 sheet_errors.append(err_line)
                 notify_sheet_error(catalog_title, spreadsheet_id, exc)
+                unsafe_catalogs.add(catalog_title)
                 continue
 
             if len(rows) == 0:
-                log("Таблиця порожня або діапазон не знайдено.")
+                log("Таблиця порожня або діапазон не знайдено — каталог не чистимо.")
+                unsafe_catalogs.add(catalog_title)
                 if _catalog_sync_tg_verbose():
                     send_catalog_sync_message(format_block_empty(catalog_title, spreadsheet_id))
                 catalogs_completed += 1
                 continue
 
+            loaded_catalogs.add(catalog_title)
             _sync_block_reset(catalog_title, spreadsheet_id, range_name, len(rows))
             if _catalog_sync_tg_verbose():
                 send_catalog_sync_message(
@@ -450,6 +577,7 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
                 art = _normalize_article(row[fields["article"]]) if fields["article"] < len(row) else ""
                 if not art:
                     continue
+                seen_by_catalog.setdefault(catalog_title, set()).add(art.lower())
                 try:
                     existing = _pick_product_for_article(art)
                     if existing is None:
@@ -509,6 +637,15 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
         _SyncLogBridge.fn = None
         _sync_import_set_active(False)
 
+    removed = hidden = orphans = 0
+    try:
+        removed, hidden, orphans = _prune_products_missing_from_sheets(
+            seen_by_catalog, loaded_catalogs, unsafe_catalogs, log
+        )
+    except Exception as exc:
+        _sync_logger.exception("prune missing products failed")
+        row_errors.append(f"Прибирання товарів · {exc!s}")
+
     try:
         from shop.promotional_rules import apply_last_active_variant_promotional_prices
 
@@ -551,6 +688,8 @@ def run_product_sync(log=print, *, trigger: str = "schedule"):
     ok = not sheet_errors and not row_errors
     brief = (
         f"Рядків: {rows_processed}. Блоків: {catalogs_completed}. "
+        f"Прибрано товарів: {removed}, сховано через замовлення: {hidden}, "
+        f"зайвих фото: {orphans}. "
         f"Помилки таблиць: {len(sheet_errors)}, рядків: {len(row_errors)}."
     )
     mark_sync_finished(ok=ok, rows_ok=rows_processed, message=brief)

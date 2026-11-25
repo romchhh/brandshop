@@ -22,26 +22,9 @@ function* fetchProductSaga(action) {
             headers: { "ngrok-skip-browser-warning": "test" },
             params: { userId },
         });
-        const data = response.data;
-        console.log("[BrandShop] Товар з API OK", {
-            requestUrl: url,
-            API_HOST,
-            productId,
-            photo: data?.photo ?? null,
-            product_properties_photos:
-                data?.product_properties?.map((p: { id: number; title: string; photo?: string }) => ({
-                    id: p.id,
-                    title: p.title,
-                    photo: p.photo ?? null,
-                })) ?? [],
-        });
-        yield put(fetchProductSuccess(data));
+        yield put(fetchProductSuccess(response.data));
     } catch (error) {
-        console.error("[BrandShop] Товар з API помилка", {
-            productId: action.payload?.productId,
-            API_HOST,
-            error,
-        });
+        /* сторінка лишається на лоадері; повторний захід перезапитає */
     }
 }
 

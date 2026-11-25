@@ -5,182 +5,95 @@ import { useDispatch, useSelector } from "react-redux";
 import { Button, List } from "antd";
 import { useInitData } from '@telegram-apps/sdk-react';
 import Link from "next/link";
-import _ from 'lodash';
+import axios from "axios";
 import { Search } from "@/components/shared/Search";
 import './styles.css';
 import classNames from "classnames";
 
 import { RootState } from "@/store/store";
-import { fetchViewProductsRequest, fetchPromotionalProductsRequest, fetchNewProductsRequest } from "@/store/productSlice";
+import { fetchViewProductsRequest } from "@/store/productSlice";
 import { ProductPreview } from "@/components/shared/ProductPreview";
 import { getUserId } from "@/lib/helpers";
 import { emptyText } from "@/components/shared/EmptyText";
-import { fetchCatalogsRequest } from "@/store/catalogSlice";
 import { CategoriesSlider } from "@/components/shared/CategoriesSlider";
-
-const groupProduct = (products) => _.groupBy(products, 'catalog_title');
-
-const ITEMS_PER_PAGE = 10;
-
-const getNewProducts = (catalogs) => {
-    const newProducts = [];
-    catalogs?.forEach(catalog => {
-        const topProducts = catalog.products.slice(0, 4).map(product => ({
-            ...product,
-            catalog_title: catalog.title
-        }));
-        newProducts.push(...topProducts);
-    });
-    return newProducts;
-}
+import { API_HOST } from "@/lib/constants";
+import { beginPageWork } from "@/lib/pageWork";
 
 const Home = () => {
   const dispatch = useDispatch();
   const viewProducts = useSelector((state: RootState) => state.product.viewProducts);
-  const promotionalProducts = useSelector((state: RootState) => state.product.promotionalProducts);
-  const catalogs = useSelector((state: RootState) => state.catalog.catalogs);
-  const [products, setProducts] = useState(null);
-  const [promoProducts, setPromoProducts] = useState(null);
-  const [newProductsList, setNewProductsList] = useState(null);
+  const [catalogs, setCatalogs] = useState<any[] | null>(null);
+  const [products, setProducts] = useState<any[] | null>(null);
+  const [promoProducts, setPromoProducts] = useState<any[] | null>(null);
+  const [newProductsList, setNewProductsList] = useState<any[] | null>(null);
+  const [feedProducts, setFeedProducts] = useState<any[]>([]);
   const initData = useInitData(true);
-  const [filteredProducts, setFilteredProducts] = useState(null);
+  const [searchHits, setSearchHits] = useState<any[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
-  const [visibleItems, setVisibleItems] = useState(ITEMS_PER_PAGE);
   const [searchValue, setSearchValue] = useState('');
 
   useEffect(() => {
-    if (initData) {
-      dispatch(fetchViewProductsRequest(getUserId(initData)));
-      dispatch(fetchPromotionalProductsRequest());
-      dispatch(fetchCatalogsRequest());
-    }
-  }, [initData]);
-
-  useEffect(() => {
-    if (viewProducts) {
-      setProducts(viewProducts.slice(0, 4));
-    }
-  }, [viewProducts]);
-
-  useEffect(() => {
-    if (promotionalProducts) {
-      setPromoProducts(promotionalProducts.slice(0, 4));
-    }
-  }, [promotionalProducts]);
-
-  useEffect(() => {
-    if (catalogs) {
-      const newProducts = getNewProducts(catalogs);
-      setNewProductsList(newProducts.slice(0, 4));
-    }
-  }, [catalogs]);
-
-  useEffect(() => {
-    if (catalogs) {
-      const allProducts = catalogs.flatMap(catalog => 
-        catalog.products.map(product => ({
-          ...product,
-          catalog_title: catalog.title
-        }))
-      );
-    }
-  }, [catalogs]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-        const savedSearch = localStorage.getItem('searchValue');
-        if (savedSearch) {
-            setSearchValue(savedSearch);
-            setIsSearching(true);
-            const allProducts = catalogs?.flatMap(catalog => 
-                catalog.products.map(product => ({
-                    ...product,
-                    catalog_title: catalog.title
-                }))
-            ) || [];
-            setFilteredProducts(allProducts.filter((product) =>
-                product.title.toLowerCase().includes(savedSearch.toLowerCase())
-            ));
+    let cancelled = false;
+    const finish = beginPageWork();
+    axios
+      .get(`${API_HOST}/api/home/`)
+      .then((res) => {
+        if (cancelled) return;
+        setCatalogs(res.data.catalogs || []);
+        setNewProductsList(res.data.new_products || []);
+        setPromoProducts(res.data.promotional_products || []);
+        setFeedProducts(res.data.products || []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCatalogs([]);
+          setNewProductsList([]);
+          setPromoProducts([]);
+          setFeedProducts([]);
         }
-    }
-    }, [catalogs]);
-
-    const onSearch = (event) => {
-        const value = event.target.value;
-        setSearchValue(value);
-        if (value) {
-            setIsSearching(true);
-            if (typeof window !== "undefined") {
-                localStorage.setItem('searchValue', value);
-            }
-            const allProducts = catalogs.flatMap(catalog => 
-                catalog.products.map(product => ({
-                    ...product,
-                    catalog_title: catalog.title
-                }))
-            );
-            setFilteredProducts(allProducts.filter((product) =>
-                product.title.toLowerCase().includes(value.toLowerCase())
-            ));
-        } else {
-            setIsSearching(false);
-            setFilteredProducts(null);
-            setSearchValue('');
-            if (typeof window !== "undefined") {
-                localStorage.removeItem('searchValue');
-            }
-        }
+      })
+      .finally(finish);
+    return () => {
+      cancelled = true;
+      finish();
     };
-
-  const onClearSearch = () => {
-    setIsSearching(false);
-    setFilteredProducts(null);
-    setSearchValue('');
-    localStorage.removeItem('searchValue');
-  };
-
-  useEffect(() => {
-    setVisibleItems(ITEMS_PER_PAGE);
-  }, [filteredProducts]);
-
-  const getDisplayedProducts = () => {
-    const allProducts = filteredProducts || catalogs?.flatMap(catalog => 
-      catalog.products.map(product => ({
-        ...product,
-        catalog_title: catalog.title
-      }))
-    ) || [];
-    
-    return allProducts.slice(0, visibleItems);
-  };
-
-  const loadMore = () => {
-    setVisibleItems(prev => prev + ITEMS_PER_PAGE);
-  };
-
-  const handleScroll = () => {
-    if (
-      window.innerHeight + document.documentElement.scrollTop
-      === document.documentElement.offsetHeight
-    ) {
-      loadMore();
-    }
-  };
-
-  useEffect(() => {
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
   useEffect(() => {
-    return () => {
-        if (typeof window !== "undefined") {
-            if (!window.location.pathname.includes('/products/')) {
-                localStorage.removeItem('searchValue');
-            }
-        }
-    };
-}, []);
+    if (!initData) return;
+    dispatch(fetchViewProductsRequest(getUserId(initData)));
+  }, [initData, dispatch]);
+
+  useEffect(() => {
+    if (viewProducts) setProducts(viewProducts.slice(0, 4));
+  }, [viewProducts]);
+
+  useEffect(() => {
+    const q = searchValue.trim();
+    if (q.length < 2) {
+      setIsSearching(false);
+      setSearchHits(null);
+      return;
+    }
+    setIsSearching(true);
+    const timer = window.setTimeout(() => {
+      axios
+        .get(`${API_HOST}/api/products/search/`, { params: { q } })
+        .then((res) => setSearchHits(res.data || []))
+        .catch(() => setSearchHits([]));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [searchValue]);
+
+  const onSearch = (event) => {
+    setSearchValue(event.target.value);
+  };
+
+  const onClearSearch = () => {
+    setIsSearching(false);
+    setSearchHits(null);
+    setSearchValue('');
+  };
 
   return (
     <div>
@@ -203,8 +116,8 @@ const Home = () => {
             dataSource={products}
             className={classNames("list-product-item")}
             style={{ marginTop: 20 }}
-            renderItem={(item) => (
-              <ProductPreview {...item} />
+            renderItem={(item, index) => (
+              <ProductPreview {...item} imagePriority={index < 2} />
             )}
           />
 
@@ -334,14 +247,16 @@ const Home = () => {
         </>
       )}
 
-      {catalogs && (
+      {(isSearching || feedProducts.length > 0) && (
         <>
-          <h2 style={{ marginTop: 40, marginBottom: 20, fontSize: 24 }}>Всі товари</h2>
+          <h2 style={{ marginTop: 40, marginBottom: 20, fontSize: 24 }}>
+            {isSearching ? "Пошук" : "Всі товари"}
+          </h2>
           
           <List
             locale={{ emptyText }}
             grid={{ gutter: 16, column: 2 }}
-            dataSource={getDisplayedProducts()}
+            dataSource={isSearching ? (searchHits || []) : feedProducts}
             style={{ marginTop: 20 }}
             className={classNames("list-product-item")}
             renderItem={(item) => (

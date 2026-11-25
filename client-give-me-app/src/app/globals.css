@@ -248,6 +248,29 @@ h2 {
   padding-bottom: 20px;
 }
 
+.page-enter-loader {
+  position: fixed;
+  z-index: 1000;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: var(--app-max-width);
+  top: 65px;
+  bottom: 70px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.page-enter-loader .ant-spin-dot-item {
+  background-color: #111111;
+}
+
+.page-loader-inline {
+  min-height: 50vh;
+}
+
 .custom-button {
   .ant-btn-default {
     width: 100%;

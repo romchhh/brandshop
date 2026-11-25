@@ -19,6 +19,7 @@ from .enums import OrderPaymentStatusEnum, PaymentMethodEnum
 from .models import Catalog, Product, ProductView, BasketItem, ProductProperty, Order, OrderItem, Promocode, Banner
 from .serializers import (
     CatalogSerializer,
+    ProductCardSerializer,
     ProductSerializer,
     BasketItemSerializer,
     OrderSerializer,
@@ -194,30 +195,107 @@ class PromotionalProductList(generics.ListCreateAPIView):
 
 
 class ProductDetail(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Product.objects.filter(active=True)
     serializer_class = ProductSerializer
 
+    def get_queryset(self):
+        from django.db.models import Prefetch
+
+        return (
+            Product.objects.filter(active=True)
+            .select_related("catalog")
+            .prefetch_related(
+                Prefetch(
+                    "product_properties",
+                    queryset=ProductProperty.objects.filter(active=True).only(
+                        "id", "title", "photo", "product_id", "active"
+                    ),
+                )
+            )
+        )
+
     def get(self, request, *args, **kwargs):
-        # Retrieve the product instance
         product = self.get_object()
+        cache_key = f"api:v1:product:{product.pk}"
+        hit = cache.get(cache_key)
 
-        # Retrieve user_id from query parameters
-        user_id = request.query_params.get('userId')
-        print(f"Product get: {product.id}, User ID: {user_id}")
-
+        user_id = request.query_params.get("userId")
         if user_id:
             product_view, created = ProductView.objects.get_or_create(
                 product=product,
                 user_id=user_id,
-                defaults={'viewed_at': timezone.now()}
+                defaults={"viewed_at": timezone.now()},
             )
             if not created:
                 product_view.viewed_at = timezone.now()
-                product_view.save(update_fields=['viewed_at'])
+                product_view.save(update_fields=["viewed_at"])
+
+        if hit is not None:
+            return Response(hit)
+
+        data = self.get_serializer(product).data
+        cache.set(cache_key, data, timeout=api_json_cache_ttl_seconds())
+        return Response(data)
 
 
-        # Use the default GET behavior to return the response
-        return super().get(request, *args, **kwargs)
+def _home_product_qs():
+    from django.db.models import Prefetch
+
+    return (
+        Product.objects.filter(active=True)
+        .select_related("catalog")
+        .prefetch_related(
+            Prefetch(
+                "product_properties",
+                queryset=ProductProperty.objects.filter(active=True).only("id", "title", "product_id", "active"),
+            )
+        )
+    )
+
+
+class HomeFeedView(APIView):
+    """Легкий payload головної: категорії без товарів + кілька карток."""
+
+    def get(self, request):
+        cache_key = "api:v1:home"
+        hit = cache.get(cache_key)
+        if hit is not None:
+            return Response(hit)
+
+        catalogs = (
+            Catalog.objects.filter(active=True, products__active=True)
+            .distinct()
+            .order_by("priority")
+            .only("id", "title", "photo", "priority")
+        )
+        cards = _home_product_qs()
+        data = {
+            "catalogs": [
+                {"id": c.id, "title": c.title, "photo": _absolute_media_url(c.photo), "products": []}
+                for c in catalogs
+            ],
+            "new_products": ProductCardSerializer(list(cards.order_by("-created_at", "-id")[:4]), many=True).data,
+            "promotional_products": ProductCardSerializer(
+                list(cards.filter(promotional_price__gt=0).order_by("-updated_at", "-id")[:4]),
+                many=True,
+            ).data,
+            "products": ProductCardSerializer(
+                list(cards.order_by("-updated_at", "-priority", "-id")[:12]),
+                many=True,
+            ).data,
+        }
+        cache.set(cache_key, data, timeout=api_json_cache_ttl_seconds())
+        return Response(data)
+
+
+class ProductSearchView(APIView):
+    """Пошук по назві без вивантаження всього каталогу на клієнт."""
+
+    def get(self, request):
+        q = (request.query_params.get("q") or "").strip()[:80]
+        if len(q) < 2:
+            return Response([])
+        qs = _home_product_qs().filter(title__icontains=q).order_by("-updated_at")[:24]
+        return Response(ProductCardSerializer(qs, many=True).data)
 
 class CatalogList(generics.ListAPIView):
     queryset = Catalog.objects.filter(active=True, products__active=True).distinct().order_by('priority')

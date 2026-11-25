@@ -1,5 +1,5 @@
 import {Flex, Spin} from "antd";
 
-export const Loader = () => <Flex style={{height: '60%'}} justify="center" align="center">
-    <Spin />
+export const Loader = () => <Flex className="page-loader-inline" justify="center" align="center">
+    <Spin size="large" />
 </Flex>
