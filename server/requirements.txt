@@ -8,7 +8,7 @@ tzdata==2025.2
 whitenoise==6.2.0
 requests==2.31.0
 Pillow==10.1.0
-gunicorn==19.9.0
+gunicorn==23.0.0
 pyTelegramBotAPI==4.16.1
 google-api-python-client==2.154.0
 google-auth-httplib2==0.2.0
