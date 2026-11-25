@@ -31,7 +31,6 @@ export default function NewProducts() {
     const [loadingMore, setLoadingMore] = useState(false);
     const [hasNext, setHasNext] = useState(false);
     const pageRef = useRef(1);
-    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const fetchPage = useCallback(async (page: number, append: boolean) => {
         const params = { page, page_size: LIST_PAGE_SIZE };
@@ -71,7 +70,8 @@ export default function NewProducts() {
         fetchPage(pageRef.current + 1, true).finally(() => setLoadingMore(false));
     }, [hasNext, loadingMore, loading, fetchPage]);
 
-    useInfiniteScroll(sentinelRef, loadMore, hasNext && !loadingMore && !loading);
+    const canLoadMore = hasNext && !loadingMore && !loading;
+    const attachNewSentinel = useInfiniteScroll(loadMore, canLoadMore);
 
     const filtered = searchQuery.trim()
         ? items.filter((p) => p.title?.toLowerCase().includes(searchQuery.trim().toLowerCase()))
@@ -106,7 +106,9 @@ export default function NewProducts() {
                     />
                 </div>
             ))}
-            {hasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+            {canLoadMore && (
+                <div ref={attachNewSentinel} className="infinite-scroll-sentinel" style={{ height: 24, marginTop: 8 }} aria-hidden />
+            )}
             {loadingMore && (
                 <Flex justify="center" style={{ padding: 12 }}>
                     <Loader />

@@ -58,7 +58,6 @@ export default function Catalog() {
     const dispatch = useDispatch()
     const user = useSelector((state: RootState) => state.user.user)
     const lastPageRef = useRef(1);
-    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const onSearch = (event: ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value.toLowerCase()
@@ -84,7 +83,8 @@ export default function Catalog() {
         dispatch(fetchCatalogsRequest({ page: next, append: true, silent: true }));
     }, [catalogsHasNext, catalogsLoadingMore, listLoading, dispatch]);
 
-    useInfiniteScroll(sentinelRef, loadMoreCatalogs, catalogsHasNext && !catalogsLoadingMore);
+    const canLoadMoreCatalogs = catalogsHasNext && !catalogsLoadingMore && !listLoading;
+    const attachCatalogSentinel = useInfiniteScroll(loadMoreCatalogs, canLoadMoreCatalogs);
 
     useEffect(() => {
         setResultCatalogs(catalogs)
@@ -139,7 +139,9 @@ export default function Catalog() {
                 </List.Item>
             )}
         />
-        {catalogsHasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+        {canLoadMoreCatalogs && (
+            <div ref={attachCatalogSentinel} className="infinite-scroll-sentinel" style={{ height: 24, marginTop: 8 }} aria-hidden />
+        )}
         {catalogsLoadingMore && (
             <Flex justify="center" style={{ padding: 12 }}>
                 Завантаження…

@@ -29,7 +29,6 @@ export default function CatalogItem({ params: { id } }) {
     const catalogLoadingMore = useSelector((state: RootState) => state.catalog.catalogLoadingMore);
     const catalogProductsHasNext = useSelector((state: RootState) => state.catalog.catalogProductsHasNext);
     const lastLoadedPageRef = useRef(1);
-    const scrollSentinelRef = useRef<HTMLDivElement>(null);
 
     const sizeFilterOptions = useMemo(
         () => getCatalogSizeFilterOptions(catalog?.title, catalog?.products || []),
@@ -51,18 +50,28 @@ export default function CatalogItem({ params: { id } }) {
         }
     }, [id, dispatch]);
 
+    const productsCount = catalog?.products_count;
+    const loadedCount = catalog?.products?.length ?? 0;
+    const canLoadMoreProducts =
+        (catalogProductsHasNext ||
+            (typeof productsCount === "number" && loadedCount < productsCount)) &&
+        !catalogLoadingMore &&
+        !isLoading;
+
     const loadMoreCatalog = useCallback(() => {
-        if (!catalogProductsHasNext || catalogLoadingMore || isLoading) return;
+        if (!canLoadMoreProducts) return;
         const next = lastLoadedPageRef.current + 1;
         lastLoadedPageRef.current = next;
         dispatch(fetchCatalogRequest({ id, page: next, append: true }));
-    }, [catalogProductsHasNext, catalogLoadingMore, isLoading, dispatch, id]);
+    }, [canLoadMoreProducts, dispatch, id]);
 
-    useInfiniteScroll(
-        scrollSentinelRef,
-        loadMoreCatalog,
-        catalogProductsHasNext && !catalogLoadingMore && !isLoading,
-    );
+    const attachScrollSentinel = useInfiniteScroll(loadMoreCatalog, canLoadMoreProducts);
+
+    useEffect(() => {
+        if (catalog?.products_page) {
+            lastLoadedPageRef.current = catalog.products_page;
+        }
+    }, [catalog?.products_page]);
 
     // Зберігаємо фільтри при розмонтуванні
     useEffect(() => {
@@ -206,8 +215,13 @@ export default function CatalogItem({ params: { id } }) {
                             />
                         )}
                     />
-                    {catalogProductsHasNext && (
-                        <div ref={scrollSentinelRef} style={{ height: 1, marginTop: 16 }} aria-hidden />
+                    {canLoadMoreProducts && (
+                        <div
+                            ref={attachScrollSentinel}
+                            className="infinite-scroll-sentinel"
+                            style={{ height: 24, marginTop: 16 }}
+                            aria-hidden
+                        />
                     )}
                     {catalogLoadingMore && (
                         <Flex justify="center" style={{ marginTop: 8 }}>

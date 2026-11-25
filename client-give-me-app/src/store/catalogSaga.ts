@@ -10,6 +10,17 @@ import axios from 'axios';
 import { API_HOST, LIST_PAGE_SIZE } from "@/lib/constants";
 import { buildListCacheKey, readApiCache, writeApiCache } from '@/lib/apiCache';
 
+function normalizeCatalogPage(data: Record<string, unknown> | null, page: number) {
+    if (!data || typeof data !== "object") return data;
+    const total = data.products_count;
+    if (typeof total !== "number") return data;
+    const ps = (data.products_page_size as number) || LIST_PAGE_SIZE;
+    const pg = (data.products_page as number) || page;
+    const chunk = Array.isArray(data.products) ? data.products.length : 0;
+    const start = (pg - 1) * ps;
+    return { ...data, products_has_next: start + chunk < total };
+}
+
 function* fetchCatalogsSaga(action: { payload?: { page?: number; append?: boolean } }) {
     try {
         const page = action.payload?.page ?? 1;
@@ -57,10 +68,11 @@ function* fetchCatalogSaga(action) {
         const params = { paginated: 1, page, page_size: LIST_PAGE_SIZE };
         const cacheKey = buildListCacheKey(`catalogs/${id}`, params);
         const hit = readApiCache(cacheKey);
-        if (hit) {
+        if (hit && typeof hit === "object") {
+            const catalog = normalizeCatalogPage(hit as Record<string, unknown>, page);
             yield put(
                 fetchCatalogSuccess({
-                    catalog: hit,
+                    catalog,
                     append,
                     id: Number(id),
                 }),
@@ -71,10 +83,11 @@ function* fetchCatalogSaga(action) {
             headers: { 'ngrok-skip-browser-warning': 'test' },
             params,
         });
-        writeApiCache(cacheKey, response.data);
+        const catalog = normalizeCatalogPage(response.data, page);
+        writeApiCache(cacheKey, catalog);
         yield put(
             fetchCatalogSuccess({
-                catalog: response.data,
+                catalog,
                 append,
                 id: Number(id),
             }),

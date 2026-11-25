@@ -24,7 +24,6 @@ function FavoritesPage() {
     const [hasNext, setHasNext] = useState(false);
     const offsetRef = useRef(0);
     const idsKeyRef = useRef("");
-    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const loadChunk = useCallback(
         async (offset: number, append: boolean, ids: string) => {
@@ -84,7 +83,8 @@ function FavoritesPage() {
         loadChunk(offsetRef.current, true, idsKeyRef.current).finally(() => setLoadingMore(false));
     }, [hasNext, loadingMore, loading, loadChunk]);
 
-    useInfiniteScroll(sentinelRef, loadMore, hasNext && !loadingMore && !loading);
+    const canLoadMore = hasNext && !loadingMore && !loading;
+    const attachFavoritesSentinel = useInfiniteScroll(loadMore, canLoadMore);
 
     const onSearch = (event) => {
         const value = event.target.value.toLowerCase();
@@ -113,7 +113,9 @@ function FavoritesPage() {
                 style={{ marginTop: 20 }}
                 renderItem={(item, index) => <ProductPreview {...item} imagePriority={index < 2} />}
             />
-            {hasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+            {canLoadMore && (
+                <div ref={attachFavoritesSentinel} className="infinite-scroll-sentinel" style={{ height: 24, marginTop: 8 }} aria-hidden />
+            )}
             {loadingMore && (
                 <Flex justify="center" style={{ padding: 12 }}>
                     <Loader />

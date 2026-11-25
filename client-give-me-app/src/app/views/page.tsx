@@ -23,7 +23,6 @@ export default function Views() {
     const [resultProducts, setResultProducts] = useState<any[] | null>(null);
     const initData = useInitData(true);
     const pageRef = useRef(1);
-    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const userId = initData ? getUserId(initData) : null;
 
@@ -40,7 +39,8 @@ export default function Views() {
         dispatch(fetchViewProductsRequest({ userId, page: next, append: true }));
     }, [userId, hasNext, loadingMore, isLoading, dispatch]);
 
-    useInfiniteScroll(sentinelRef, loadMore, !!hasNext && !loadingMore && !isLoading);
+    const canLoadMore = !!hasNext && !loadingMore && !isLoading;
+    const attachViewsSentinel = useInfiniteScroll(loadMore, canLoadMore);
 
     const onSearch = (event) => {
         const value = event.target.value;
@@ -72,7 +72,9 @@ export default function Views() {
                     renderItem={(item) => <ProductPreview {...item} />}
                 />
             )}
-            {hasNext && <div ref={sentinelRef} style={{ height: 1, marginTop: 8 }} aria-hidden />}
+            {canLoadMore && (
+                <div ref={attachViewsSentinel} className="infinite-scroll-sentinel" style={{ height: 24, marginTop: 8 }} aria-hidden />
+            )}
             {loadingMore && (
                 <Flex justify="center" style={{ padding: 12 }}>
                     <Loader />

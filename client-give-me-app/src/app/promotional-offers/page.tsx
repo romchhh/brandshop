@@ -30,7 +30,6 @@ export default function PromotionalOffers() {
     const [groupedProducts, setGroupedProducts] = useState<Record<string, any[]> | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
     const lastLoadedPageRef = useRef(1);
-    const sentinelRef = useRef<HTMLDivElement>(null);
 
     const productOrderIndex = useMemo(() => {
         const m = new Map<number, number>();
@@ -93,11 +92,8 @@ export default function PromotionalOffers() {
         dispatch(fetchPromotionalProductsRequest({ page: next, append: true } as any));
     }, [promotionalProductsHasNext, promotionalLoadingMore, isLoading, dispatch]);
 
-    useInfiniteScroll(
-        sentinelRef,
-        loadMore,
-        promotionalProductsHasNext && !promotionalLoadingMore && !isLoading,
-    );
+    const canLoadMore = promotionalProductsHasNext && !promotionalLoadingMore && !isLoading;
+    const attachPromoSentinel = useInfiniteScroll(loadMore, canLoadMore);
 
     return (
         <>
@@ -134,8 +130,8 @@ export default function PromotionalOffers() {
                         />
                     </div>
                 ))}
-            {promotionalProductsHasNext && (
-                <div ref={sentinelRef} style={{ height: 1, marginTop: 16 }} aria-hidden />
+            {canLoadMore && (
+                <div ref={attachPromoSentinel} className="infinite-scroll-sentinel" style={{ height: 24, marginTop: 16 }} aria-hidden />
             )}
             {promotionalLoadingMore && (
                 <Flex justify="center" style={{ marginTop: 8 }}>

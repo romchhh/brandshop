@@ -83,20 +83,28 @@ const catalogSlice = createSlice({
             const append = pl?.append;
             const data = pl?.catalog ?? pl;
             const prevId = state.catalog?.id;
-            if (
+            const incomingProducts = Array.isArray(data?.products) ? data.products : [];
+            const mergedProducts =
                 append &&
-                String(prevId) === String(data?.id) &&
-                Array.isArray(state.catalog?.products) &&
-                Array.isArray(data?.products)
-            ) {
-                state.catalog = {
-                    ...data,
-                    products: [...state.catalog.products, ...data.products],
-                };
+                state.catalog?.id != null &&
+                data?.id != null &&
+                String(prevId) === String(data.id) &&
+                Array.isArray(state.catalog?.products)
+                    ? [...state.catalog.products, ...incomingProducts]
+                    : incomingProducts;
+
+            if (append && mergedProducts !== incomingProducts) {
+                state.catalog = { ...data, products: mergedProducts };
             } else {
-                state.catalog = data;
+                state.catalog = { ...data, products: incomingProducts };
             }
-            state.catalogProductsHasNext = !!data?.products_has_next;
+
+            const total = data?.products_count;
+            const loadedLen = mergedProducts.length;
+            state.catalogProductsHasNext =
+                typeof total === "number"
+                    ? loadedLen < total
+                    : !!data?.products_has_next;
         },
         fetchCatalogFailure: (state, action: PayloadAction<string>) => {
             state.loading = false;

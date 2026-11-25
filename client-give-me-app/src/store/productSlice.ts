@@ -87,7 +87,12 @@ const productSlice = createSlice({
             } else {
                 state.promotionalProducts = list;
             }
-            state.promotionalProductsHasNext = !!d.next;
+            const total = typeof d.count === "number" ? d.count : undefined;
+            const loaded = append
+                ? state.promotionalProducts.length
+                : list.length;
+            state.promotionalProductsHasNext =
+                typeof total === "number" ? loaded < total : !!d.next;
         },
         fetchPromotionalProductsFailure: (state) => {
             state.loading = false;
