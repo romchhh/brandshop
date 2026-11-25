@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.utils.dateformat import format as django_format
 
 from shop.models import Catalog, Product, ProductProperty
-from shop.promotional_rules import effective_promotional_price
+from shop.promotional_rules import site_selling_price
 
 
 def _shop_site_url() -> str:
@@ -128,8 +128,8 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
     prods_el = _sub(root, "products", count=str(len(products)))
     for product in products:
         catalog = product.catalog
-        sale_price = effective_promotional_price(product)
-        has_sale = sale_price is not None and sale_price > 0
+        price_table = product.price
+        price_site = site_selling_price(product)
 
         prod_el = _sub(
             prods_el,
@@ -145,11 +145,9 @@ def build_shop_feed_xml(request) -> tuple[bytes, datetime | None]:
         _sub(prod_el, "catalog_title", catalog.title if catalog else "")
         _cdata_sub(prod_el, "description", product.description or "")
         _sub(prod_el, "photo", _media_public_url(product.photo, request))
-        _sub(prod_el, "price", _fmt_decimal(product.price))
+        _sub(prod_el, "price_table", _fmt_decimal(price_table))
+        _sub(prod_el, "price_site", _fmt_decimal(price_site))
         _sub(prod_el, "currency", "UAH")
-        if has_sale:
-            _sub(prod_el, "promotional_price", _fmt_decimal(sale_price))
-            _sub(prod_el, "oldprice", _fmt_decimal(product.price))
         _sub(prod_el, "property_title", product.property_title or "")
         _sub(prod_el, "priority", str(product.priority))
         _sub(prod_el, "created_at", _fmt_dt(product.created_at))

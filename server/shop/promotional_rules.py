@@ -55,6 +55,14 @@ def effective_promotional_price(product: Product) -> Decimal | None:
     return promo
 
 
+def site_selling_price(product: Product) -> Decimal:
+    """Ціна, яку бачить покупець на сайті (акційна, якщо діє, інакше з таблиці)."""
+    promo = effective_promotional_price(product)
+    if promo is not None:
+        return promo
+    return product.price or Decimal("0")
+
+
 def floor_money_to_step(amount: Decimal, step: Decimal = STEP) -> Decimal:
     """Округлення суми вниз до кратного step (грн)."""
     if amount <= 0:
