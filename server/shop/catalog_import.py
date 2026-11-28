@@ -353,6 +353,73 @@ _catalog_cache: dict[str, Catalog] = {}
 _article_cache: dict[str, Product] = {}
 _sheet_titles_cache: dict[str, list[str]] = {}
 _drive_service = None
+_sheets_service = None
+
+# Мережеві обриви Google API (довгий імпорт на 1GB VPS / idle keep-alive)
+_GOOGLE_TRANSIENT = (
+    BrokenPipeError,
+    ConnectionError,
+    ConnectionResetError,
+    TimeoutError,
+    OSError,
+)
+
+
+def _is_transient_google_error(exc: BaseException) -> bool:
+    if isinstance(exc, HttpError):
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        return status in (408, 429, 500, 502, 503, 504)
+    if isinstance(exc, _GOOGLE_TRANSIENT):
+        # Errno 32 Broken pipe, 104 Connection reset, 110 timed out
+        errno = getattr(exc, "errno", None)
+        if errno is not None and errno not in (32, 104, 110, 11, None):
+            # Інші OSError (напр. «file not found») не ретраїмо
+            if type(exc) is OSError and errno not in (32, 104, 110):
+                return False
+        return True
+    name = type(exc).__name__
+    msg = str(exc).lower()
+    if "broken pipe" in msg or "connection reset" in msg or "timed out" in msg:
+        return True
+    if name in ("SSLEOFError", "SSLError", "IncompleteRead"):
+        return True
+    return False
+
+
+def _reset_google_clients() -> None:
+    """Скидає keep-alive клієнти після Broken pipe / reset."""
+    global _sheets_service, _drive_service
+    _sheets_service = None
+    _drive_service = None
+
+
+def _google_execute(request_factory, *, attempts: int = 6, label: str = "google-api"):
+    """
+    Виконує googleapiclient request з ретраями.
+    request_factory: () -> HttpRequest — викликається щоразу (новий request після rebuild клієнта).
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            req = request_factory()
+            return req.execute(num_retries=2)
+        except Exception as exc:
+            last_exc = exc
+            if not _is_transient_google_error(exc) or attempt >= attempts:
+                raise
+            _reset_google_clients()
+            delay = min(2 ** (attempt - 1), 30)
+            _sync_logger.warning(
+                "%s: тимчасова помилка (%s), спроба %s/%s через %ss",
+                label,
+                exc,
+                attempt,
+                attempts,
+                delay,
+            )
+            time.sleep(delay)
+    assert last_exc is not None
+    raise last_exc
 
 
 def _clear_sync_runtime_caches() -> None:
@@ -360,6 +427,7 @@ def _clear_sync_runtime_caches() -> None:
     _catalog_cache = {}
     _article_cache = {}
     _sheet_titles_cache = {}
+    _reset_google_clients()
 
 
 def _warm_sync_runtime_caches() -> None:
@@ -818,27 +886,44 @@ def get_catalog_data(SPREADSHEET_ID, RANGE_NAME):
     for i in RANGE_NAME:
         if i < 0 or i >= len(titles):
             raise ValueError(f"Індекс аркуша {i} поза межами (0 - {len(titles) - 1}).")
-    api = _sheets_api().spreadsheets().values()
     if len(RANGE_NAME) == 1:
-        result = api.get(spreadsheetId=SPREADSHEET_ID, range=titles[RANGE_NAME[0]]).execute()
+        sheet_title = titles[RANGE_NAME[0]]
+
+        def _one():
+            return (
+                _sheets_api()
+                .spreadsheets()
+                .values()
+                .get(spreadsheetId=SPREADSHEET_ID, range=sheet_title)
+            )
+
+        result = _google_execute(_one, label=f"sheets.get:{SPREADSHEET_ID[:8]}")
         return result.get("values", [])
     ranges = [titles[i] for i in RANGE_NAME]
-    result = api.batchGet(spreadsheetId=SPREADSHEET_ID, ranges=ranges).execute()
+
+    def _batch():
+        return (
+            _sheets_api()
+            .spreadsheets()
+            .values()
+            .batchGet(spreadsheetId=SPREADSHEET_ID, ranges=ranges)
+        )
+
+    result = _google_execute(_batch, label=f"sheets.batchGet:{SPREADSHEET_ID[:8]}")
     data: list = []
     for block in result.get("valueRanges", []):
         data.extend(block.get("values", []))
     return data
 
 
-_sheets_service = None
-
-
 def _spreadsheet_sheet_titles(spreadsheet_id: str) -> list[str]:
     """Назви вкладок таблиці — один spreadsheets.get на файл за синхронізацію."""
     if spreadsheet_id not in _sheet_titles_cache:
-        spreadsheet = (
-            _sheets_api().spreadsheets().get(spreadsheetId=spreadsheet_id).execute()
-        )
+
+        def _meta():
+            return _sheets_api().spreadsheets().get(spreadsheetId=spreadsheet_id)
+
+        spreadsheet = _google_execute(_meta, label=f"sheets.meta:{spreadsheet_id[:8]}")
         _sheet_titles_cache[spreadsheet_id] = [
             s["properties"]["title"] for s in spreadsheet.get("sheets", [])
         ]
@@ -868,11 +953,16 @@ def get_google_sheet_data_by_index(spreadsheet_id, sheet_index, range_name=None)
 
     full_range = sheet_title if not range_name else f"{sheet_title}!{range_name}"
 
-    sheet = _sheets_api().spreadsheets()
-    result = sheet.values().get(spreadsheetId=spreadsheet_id, range=full_range).execute()
-    values = result.get("values", [])
+    def _vals():
+        return (
+            _sheets_api()
+            .spreadsheets()
+            .values()
+            .get(spreadsheetId=spreadsheet_id, range=full_range)
+        )
 
-    return values
+    result = _google_execute(_vals, label=f"sheets.values:{spreadsheet_id[:8]}")
+    return result.get("values", [])
 
 
 def update_product(product: Product, row, fields, catalog_title):
@@ -1138,46 +1228,62 @@ def _download_photo_via_drive_api(file_id: str) -> tuple[bytes | None, str | Non
         msg = f"немає credentials за шляхом {CREDENTIALS_FILE}"
         _sync_log_line(f"[sync photo download] Drive API: {msg}")
         return None, msg
-    try:
-        global _drive_service
-        if _drive_service is None:
-            creds = Credentials.from_service_account_file(
-                CREDENTIALS_FILE,
-                scopes=["https://www.googleapis.com/auth/drive.readonly"],
-            )
-            _drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
-        service = _drive_service
+    last_err: str | None = None
+    for attempt in range(1, 5):
         try:
-            request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-        except TypeError:
-            request = service.files().get_media(fileId=file_id)
-        buf = io.BytesIO()
-        downloader = MediaIoBaseDownload(buf, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
-        buf.seek(0)
-        data = buf.read()
-        if not data:
+            global _drive_service
+            if _drive_service is None:
+                creds = Credentials.from_service_account_file(
+                    CREDENTIALS_FILE,
+                    scopes=["https://www.googleapis.com/auth/drive.readonly"],
+                )
+                _drive_service = build("drive", "v3", credentials=creds, cache_discovery=False)
+            service = _drive_service
+            try:
+                request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+            except TypeError:
+                request = service.files().get_media(fileId=file_id)
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                _, done = downloader.next_chunk()
+            buf.seek(0)
+            data = buf.read()
+            if not data:
+                _sync_log_line(
+                    f"[sync photo download] Drive API: порожня відповідь для file_id={file_id}"
+                )
+                return None, "Drive API: порожня відповідь"
+            return data, None
+        except HttpError as e:
+            status = getattr(e.resp, "status", None)
+            if status in (408, 429, 500, 502, 503, 504) and attempt < 4:
+                _reset_google_clients()
+                time.sleep(min(2 ** (attempt - 1), 16))
+                continue
             _sync_log_line(
-                f"[sync photo download] Drive API: порожня відповідь для file_id={file_id}"
+                f"[sync photo download] Drive API: file_id={file_id} HTTP {status} — "
+                f"надайте service account з credentials.json доступ до файлу/папки в Google Drive."
             )
-            return None, "Drive API: порожня відповідь"
-        return data, None
-    except HttpError as e:
-        status = getattr(e.resp, "status", None)
-        _sync_log_line(
-            f"[sync photo download] Drive API: file_id={file_id} HTTP {status} — "
-            f"надайте service account з credentials.json доступ до файлу/папки в Google Drive."
-        )
-        if status == 404:
-            return None, "Drive API 404: файл не знайдено або немає доступу (поділіться з service account)"
-        if status == 403:
-            return None, "Drive API 403: заборонено — додайте service account з credentials.json як читача файлу"
-        return None, f"Drive API: помилка HTTP {status}"
-    except Exception as e:
-        _sync_log_line(f"[sync photo download] Drive API: file_id={file_id} виняток: {e!s}")
-        return None, f"Drive API: {e!s}"
+            if status == 404:
+                return None, "Drive API 404: файл не знайдено або немає доступу (поділіться з service account)"
+            if status == 403:
+                return None, "Drive API 403: заборонено — додайте service account з credentials.json як читача файлу"
+            return None, f"Drive API: помилка HTTP {status}"
+        except Exception as e:
+            last_err = f"Drive API: {e!s}"
+            if _is_transient_google_error(e) and attempt < 4:
+                _reset_google_clients()
+                _sync_log_line(
+                    f"[sync photo download] Drive API: file_id={file_id} тимчасово ({e!s}), "
+                    f"спроба {attempt}/4"
+                )
+                time.sleep(min(2 ** (attempt - 1), 16))
+                continue
+            _sync_log_line(f"[sync photo download] Drive API: file_id={file_id} виняток: {e!s}")
+            return None, last_err
+    return None, last_err or "Drive API: не вдалося завантажити"
 
 
 def _content_from_bytes(data: bytes) -> tuple[ContentFile | None, str | None]:
